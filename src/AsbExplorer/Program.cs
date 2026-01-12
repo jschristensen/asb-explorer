@@ -1,39 +1,36 @@
+using Microsoft.Extensions.DependencyInjection;
 using Terminal.Gui;
+using AsbExplorer.Services;
+using AsbExplorer.Views;
+
+// Set up DI
+var services = new ServiceCollection();
+services.AddSingleton<AzureDiscoveryService>();
+services.AddSingleton<FavoritesStore>();
+services.AddSingleton<MessageFormatter>();
+services.AddSingleton(sp =>
+    new MessagePeekService(sp.GetRequiredService<AzureDiscoveryService>().Credential));
+services.AddSingleton<MainWindow>();
+
+var provider = services.BuildServiceProvider();
 
 Application.Init();
 
 try
 {
-    var window = new Window
-    {
-        Title = "Azure Service Bus Explorer",
-        X = 0,
-        Y = 0,
-        Width = Dim.Fill(),
-        Height = Dim.Fill()
-    };
+    var mainWindow = provider.GetRequiredService<MainWindow>();
 
-    var label = new Label
-    {
-        Text = "Press Ctrl+Q to quit",
-        X = Pos.Center(),
-        Y = Pos.Center()
-    };
+    // Initialize async data before running
+    await mainWindow.InitializeAsync();
 
-    window.Add(label);
-
-    window.KeyDown += (s, e) =>
-    {
-        if (e.KeyCode == (KeyCode.Q | KeyCode.CtrlMask))
-        {
-            Application.RequestStop();
-            e.Handled = true;
-        }
-    };
-
-    Application.Run(window);
+    Application.Run(mainWindow);
 }
 finally
 {
     Application.Shutdown();
+
+    if (provider is IAsyncDisposable asyncDisposable)
+    {
+        await asyncDisposable.DisposeAsync();
+    }
 }
