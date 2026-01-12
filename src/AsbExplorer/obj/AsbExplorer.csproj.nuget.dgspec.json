@@ -80,9 +80,13 @@
             "Azure.Identity": "1.13.2",
             "Azure.Messaging.ServiceBus": "7.18.0",
             "Azure.ResourceManager.ServiceBus": "1.1.0",
+            "coverlet.collector": "6.0.4",
             "Microsoft.Extensions.DependencyInjection": "9.0.0",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.0",
-            "Terminal.Gui": "2.0.0"
+            "Microsoft.NET.Test.Sdk": "17.14.1",
+            "Terminal.Gui": "2.0.0",
+            "xunit": "2.9.3",
+            "xunit.runner.visualstudio": "3.1.4"
           },
           "imports": [
             "net461",

@@ -6,902 +6,499 @@
 
 **Architecture:** Two-panel layout with tree navigation (left) and message list/detail split (right). Uses Azure Resource Manager for discovery and Service Bus SDK for message operations. DefaultAzureCredential for authentication.
 
-**Tech Stack:** .NET 10, Terminal.Gui 2.x, Azure.Identity, Azure.ResourceManager.ServiceBus, Azure.Messaging.ServiceBus
+**Tech Stack:** .NET 10, Terminal.Gui 2.x, Azure.Identity, Azure.ResourceManager.ServiceBus, Azure.Messaging.ServiceBus, xUnit
 
 ---
 
-## Task 1: Project Scaffolding
+## TDD Approach
 
-**Files:**
-- Create: `src/AsbExplorer/AsbExplorer.csproj`
-- Create: `src/AsbExplorer/Program.cs`
-- Create: `AsbExplorer.sln`
-- Create: `Directory.Packages.props`
+Starting from Task 7, all new code follows **Test-Driven Development**:
 
-**Step 1: Create solution and project structure**
+1. **RED:** Write a failing test that describes the desired behavior
+2. **Verify RED:** Run test, confirm it fails for the right reason
+3. **GREEN:** Write minimal code to make the test pass
+4. **Verify GREEN:** Run test, confirm it passes
+5. **REFACTOR:** Clean up while keeping tests green
+6. **Commit:** Commit working code with tests
 
+**Test project:** `src/AsbExplorer.Tests/` (xUnit)
+
+**Run tests:**
 ```bash
-cd /Users/jonas/repos/puma/labs/queue-exlorer-cc/.worktrees/asb-explorer
-mkdir -p src/AsbExplorer
-dotnet new sln -n AsbExplorer
-dotnet new console -n AsbExplorer -o src/AsbExplorer -f net10.0
-dotnet sln add src/AsbExplorer/AsbExplorer.csproj
+dotnet test
 ```
 
-**Step 2: Create Directory.Packages.props for CPM**
-
-Create `Directory.Packages.props`:
-
-```xml
-<Project>
-  <PropertyGroup>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageVersion Include="Terminal.Gui" Version="2.0.0" />
-    <PackageVersion Include="Azure.Identity" Version="1.13.2" />
-    <PackageVersion Include="Azure.ResourceManager.ServiceBus" Version="1.1.0" />
-    <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.18.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
-  </ItemGroup>
-</Project>
-```
-
-**Step 3: Update csproj with package references**
-
-Replace `src/AsbExplorer/AsbExplorer.csproj`:
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Terminal.Gui" />
-    <PackageReference Include="Azure.Identity" />
-    <PackageReference Include="Azure.ResourceManager.ServiceBus" />
-    <PackageReference Include="Azure.Messaging.ServiceBus" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-  </ItemGroup>
-</Project>
-```
-
-**Step 4: Create minimal Program.cs**
-
-Replace `src/AsbExplorer/Program.cs`:
-
-```csharp
-using Terminal.Gui;
-
-Application.Init();
-
-try
-{
-    var window = new Window("Azure Service Bus Explorer")
-    {
-        X = 0,
-        Y = 0,
-        Width = Dim.Fill(),
-        Height = Dim.Fill()
-    };
-
-    var label = new Label("Press Ctrl+Q to quit")
-    {
-        X = Pos.Center(),
-        Y = Pos.Center()
-    };
-
-    window.Add(label);
-    Application.Top.Add(window);
-    Application.Run();
-}
-finally
-{
-    Application.Shutdown();
-}
-```
-
-**Step 5: Build and verify**
-
-```bash
-dotnet restore
-dotnet build
-```
-
-Expected: Build succeeded.
-
-**Step 6: Run quick smoke test**
-
-```bash
-dotnet run --project src/AsbExplorer &
-sleep 2
-kill %1 2>/dev/null || true
-```
-
-Expected: App starts without crash.
-
-**Step 7: Commit**
-
-```bash
-git add -A
-git commit -m "feat: scaffold .NET 10 project with Terminal.Gui"
-```
+**Testability strategy for Views:**
+- Extract pure logic (formatting, calculations) into testable helper classes
+- Views remain thin wrappers around Terminal.Gui components
+- Test the extracted logic, not the UI wiring
 
 ---
 
-## Task 2: Models
+## Completed Tasks (Pre-TDD)
 
-**Files:**
-- Create: `src/AsbExplorer/Models/TreeNodeType.cs`
-- Create: `src/AsbExplorer/Models/TreeNodeModel.cs`
-- Create: `src/AsbExplorer/Models/PeekedMessage.cs`
-- Create: `src/AsbExplorer/Models/Favorite.cs`
+### Task 1: Project Scaffolding ✅
+- Created solution, project, CPM (Directory.Packages.props)
+- Minimal Terminal.Gui window with Ctrl+Q quit
 
-**Step 1: Create TreeNodeType enum**
+### Task 2: Models ✅
+- TreeNodeType, TreeNodeModel, PeekedMessage, Favorite
 
-Create `src/AsbExplorer/Models/TreeNodeType.cs`:
+### Task 3: MessageFormatter Service ✅
+- JSON/XML/hex formatting for message bodies
 
-```csharp
-namespace AsbExplorer.Models;
+### Task 4: FavoritesStore Service ✅
+- Persistent favorites to ~/.config/asb-explorer/favorites.json
 
-public enum TreeNodeType
-{
-    FavoritesRoot,
-    Favorite,
-    SubscriptionsRoot,
-    Subscription,
-    ResourceGroup,
-    Namespace,
-    Queue,
-    QueueDeadLetter,
-    Topic,
-    TopicSubscription,
-    TopicSubscriptionDeadLetter
-}
-```
+### Task 5: AzureDiscoveryService ✅
+- ARM-based discovery of subscriptions, namespaces, queues, topics
 
-**Step 2: Create TreeNodeModel**
-
-Create `src/AsbExplorer/Models/TreeNodeModel.cs`:
-
-```csharp
-namespace AsbExplorer.Models;
-
-public record TreeNodeModel(
-    string Id,
-    string DisplayName,
-    TreeNodeType NodeType,
-    string? SubscriptionId = null,
-    string? ResourceGroupName = null,
-    string? NamespaceName = null,
-    string? NamespaceFqdn = null,
-    string? EntityPath = null,
-    string? ParentEntityPath = null
-)
-{
-    public bool CanHaveChildren => NodeType is
-        TreeNodeType.FavoritesRoot or
-        TreeNodeType.SubscriptionsRoot or
-        TreeNodeType.Subscription or
-        TreeNodeType.ResourceGroup or
-        TreeNodeType.Namespace or
-        TreeNodeType.Topic;
-
-    public bool CanPeekMessages => NodeType is
-        TreeNodeType.Queue or
-        TreeNodeType.QueueDeadLetter or
-        TreeNodeType.TopicSubscription or
-        TreeNodeType.TopicSubscriptionDeadLetter or
-        TreeNodeType.Favorite;
-}
-```
-
-**Step 3: Create PeekedMessage**
-
-Create `src/AsbExplorer/Models/PeekedMessage.cs`:
-
-```csharp
-namespace AsbExplorer.Models;
-
-public record PeekedMessage(
-    string MessageId,
-    long SequenceNumber,
-    DateTimeOffset EnqueuedTime,
-    int DeliveryCount,
-    string? ContentType,
-    string? CorrelationId,
-    string? SessionId,
-    TimeSpan TimeToLive,
-    DateTimeOffset? ScheduledEnqueueTime,
-    IReadOnlyDictionary<string, object> ApplicationProperties,
-    BinaryData Body
-)
-{
-    public long BodySizeBytes => Body.ToMemory().Length;
-}
-```
-
-**Step 4: Create Favorite**
-
-Create `src/AsbExplorer/Models/Favorite.cs`:
-
-```csharp
-namespace AsbExplorer.Models;
-
-public record Favorite(
-    string NamespaceFqdn,
-    string EntityPath,
-    TreeNodeType EntityType,
-    string? ParentEntityPath = null
-)
-{
-    public string DisplayName => ParentEntityPath is null
-        ? $"{NamespaceFqdn}/{EntityPath}"
-        : $"{NamespaceFqdn}/{ParentEntityPath}/{EntityPath}";
-}
-```
-
-**Step 5: Build to verify**
-
-```bash
-dotnet build
-```
-
-Expected: Build succeeded.
-
-**Step 6: Commit**
-
-```bash
-git add -A
-git commit -m "feat: add domain models for tree, messages, and favorites"
-```
+### Task 6: MessagePeekService ✅
+- Peek messages from queues and topic subscriptions
 
 ---
 
-## Task 3: MessageFormatter Service
+## Task 7: Retroactive Tests for Services
+
+Add tests for already-implemented services to establish baseline coverage.
 
 **Files:**
-- Create: `src/AsbExplorer/Services/MessageFormatter.cs`
+- Create: `src/AsbExplorer.Tests/Services/MessageFormatterTests.cs`
+- Create: `src/AsbExplorer.Tests/Services/FavoritesStoreTests.cs`
+- Delete: `src/AsbExplorer.Tests/UnitTest1.cs` (template file)
 
-**Step 1: Create MessageFormatter**
+### Step 1: Delete template test
 
-Create `src/AsbExplorer/Services/MessageFormatter.cs`:
+```bash
+rm src/AsbExplorer.Tests/UnitTest1.cs
+```
+
+### Step 2: Create MessageFormatterTests
+
+Create `src/AsbExplorer.Tests/Services/MessageFormatterTests.cs`:
 
 ```csharp
-using System.Text;
-using System.Text.Json;
-using System.Xml;
+using AsbExplorer.Services;
 
-namespace AsbExplorer.Services;
+namespace AsbExplorer.Tests.Services;
 
-public class MessageFormatter
+public class MessageFormatterTests
 {
-    public (string Content, string Format) Format(BinaryData body, string? contentType)
+    private readonly MessageFormatter _formatter = new();
+
+    [Fact]
+    public void Format_ValidJson_ReturnsPrettyPrintedJson()
     {
-        // Try UTF-8 string first
-        string? text = TryGetUtf8String(body);
+        var body = BinaryData.FromString("""{"name":"test","value":42}""");
 
-        if (text is null)
-        {
-            return (FormatAsHex(body), "hex");
-        }
+        var (content, format) = _formatter.Format(body, null);
 
-        // Try JSON
-        if (contentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true ||
-            TryFormatJson(text, out var json))
-        {
-            return (json ?? text, "json");
-        }
-
-        // Try XML
-        if (contentType?.Contains("xml", StringComparison.OrdinalIgnoreCase) == true ||
-            TryFormatXml(text, out var xml))
-        {
-            return (xml ?? text, "xml");
-        }
-
-        return (text, "text");
+        Assert.Equal("json", format);
+        Assert.Contains("\"name\": \"test\"", content);
+        Assert.Contains("\"value\": 42", content);
     }
 
-    private static string? TryGetUtf8String(BinaryData body)
+    [Fact]
+    public void Format_ValidXml_ReturnsFormattedXml()
     {
-        try
-        {
-            var bytes = body.ToArray();
-            var text = Encoding.UTF8.GetString(bytes);
+        var body = BinaryData.FromString("<root><item>test</item></root>");
 
-            // Check for invalid UTF-8 sequences (replacement char)
-            if (text.Contains('\uFFFD'))
-            {
-                return null;
-            }
+        var (content, format) = _formatter.Format(body, null);
 
-            return text;
-        }
-        catch
-        {
-            return null;
-        }
+        Assert.Equal("xml", format);
+        Assert.Contains("<root>", content);
+        Assert.Contains("<item>test</item>", content);
     }
 
-    private static bool TryFormatJson(string text, out string? formatted)
+    [Fact]
+    public void Format_PlainText_ReturnsTextFormat()
     {
-        formatted = null;
-        var trimmed = text.TrimStart();
+        var body = BinaryData.FromString("Hello, World!");
 
-        if (!trimmed.StartsWith('{') && !trimmed.StartsWith('['))
-        {
-            return false;
-        }
+        var (content, format) = _formatter.Format(body, null);
 
-        try
-        {
-            using var doc = JsonDocument.Parse(text);
-            formatted = JsonSerializer.Serialize(doc, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        Assert.Equal("text", format);
+        Assert.Equal("Hello, World!", content);
     }
 
-    private static bool TryFormatXml(string text, out string? formatted)
+    [Fact]
+    public void Format_BinaryData_ReturnsHexDump()
     {
-        formatted = null;
-        var trimmed = text.TrimStart();
+        var bytes = new byte[] { 0x00, 0x01, 0xFF, 0xFE };
+        var body = BinaryData.FromBytes(bytes);
 
-        if (!trimmed.StartsWith('<'))
-        {
-            return false;
-        }
+        var (content, format) = _formatter.Format(body, null);
 
-        try
-        {
-            var doc = new XmlDocument();
-            doc.LoadXml(text);
-
-            using var sw = new StringWriter();
-            using var xw = new XmlTextWriter(sw)
-            {
-                Formatting = System.Xml.Formatting.Indented,
-                Indentation = 2
-            };
-            doc.WriteTo(xw);
-            formatted = sw.ToString();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        Assert.Equal("hex", format);
+        Assert.Contains("00 01 FF FE", content);
     }
 
-    private static string FormatAsHex(BinaryData body)
+    [Fact]
+    public void Format_JsonContentType_TreatsAsJson()
     {
-        var bytes = body.ToArray();
-        var sb = new StringBuilder();
-        const int bytesPerLine = 16;
+        var body = BinaryData.FromString("not valid json");
 
-        for (int i = 0; i < bytes.Length; i += bytesPerLine)
-        {
-            // Offset
-            sb.Append($"{i:X8}  ");
+        var (content, format) = _formatter.Format(body, "application/json");
 
-            // Hex bytes
-            for (int j = 0; j < bytesPerLine; j++)
-            {
-                if (i + j < bytes.Length)
-                {
-                    sb.Append($"{bytes[i + j]:X2} ");
-                }
-                else
-                {
-                    sb.Append("   ");
-                }
+        Assert.Equal("json", format);
+        Assert.Equal("not valid json", content);
+    }
 
-                if (j == 7) sb.Append(' ');
-            }
+    [Fact]
+    public void Format_XmlContentType_TreatsAsXml()
+    {
+        var body = BinaryData.FromString("not valid xml");
 
-            sb.Append(" |");
+        var (content, format) = _formatter.Format(body, "application/xml");
 
-            // ASCII
-            for (int j = 0; j < bytesPerLine && i + j < bytes.Length; j++)
-            {
-                var b = bytes[i + j];
-                sb.Append(b is >= 32 and < 127 ? (char)b : '.');
-            }
+        Assert.Equal("xml", format);
+        Assert.Equal("not valid xml", content);
+    }
 
-            sb.AppendLine("|");
-        }
+    [Fact]
+    public void Format_EmptyBody_ReturnsEmptyText()
+    {
+        var body = BinaryData.FromString("");
 
-        return sb.ToString();
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("text", format);
+        Assert.Equal("", content);
+    }
+
+    [Fact]
+    public void Format_JsonArray_ReturnsPrettyPrintedArray()
+    {
+        var body = BinaryData.FromString("[1,2,3]");
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("1", content);
     }
 }
 ```
 
-**Step 2: Build to verify**
+### Step 3: Create FavoritesStoreTests
 
-```bash
-dotnet build
-```
-
-Expected: Build succeeded.
-
-**Step 3: Commit**
-
-```bash
-git add -A
-git commit -m "feat: add MessageFormatter with JSON/XML/hex support"
-```
-
----
-
-## Task 4: FavoritesStore Service
-
-**Files:**
-- Create: `src/AsbExplorer/Services/FavoritesStore.cs`
-
-**Step 1: Create FavoritesStore**
-
-Create `src/AsbExplorer/Services/FavoritesStore.cs`:
+Create `src/AsbExplorer.Tests/Services/FavoritesStoreTests.cs`:
 
 ```csharp
-using System.Text.Json;
 using AsbExplorer.Models;
+using AsbExplorer.Services;
 
-namespace AsbExplorer.Services;
+namespace AsbExplorer.Tests.Services;
 
-public class FavoritesStore
+public class FavoritesStoreTests : IDisposable
 {
-    private readonly string _filePath;
-    private List<Favorite> _favorites = [];
+    private readonly string _testDir;
+    private readonly FavoritesStore _store;
 
-    public FavoritesStore()
+    public FavoritesStoreTests()
     {
-        var configDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".config",
-            "asb-explorer"
-        );
+        _testDir = Path.Combine(Path.GetTempPath(), $"asb-explorer-test-{Guid.NewGuid()}");
+        Directory.CreateDirectory(_testDir);
 
-        Directory.CreateDirectory(configDir);
-        _filePath = Path.Combine(configDir, "favorites.json");
+        // Use reflection or make FavoritesStore accept a path for testing
+        _store = new FavoritesStoreForTesting(_testDir);
     }
 
-    public IReadOnlyList<Favorite> Favorites => _favorites.AsReadOnly();
-
-    public async Task LoadAsync()
+    public void Dispose()
     {
-        if (!File.Exists(_filePath))
+        if (Directory.Exists(_testDir))
         {
-            _favorites = [];
-            return;
-        }
-
-        try
-        {
-            var json = await File.ReadAllTextAsync(_filePath);
-            _favorites = JsonSerializer.Deserialize<List<Favorite>>(json) ?? [];
-        }
-        catch
-        {
-            _favorites = [];
+            Directory.Delete(_testDir, recursive: true);
         }
     }
 
-    public async Task AddAsync(Favorite favorite)
+    [Fact]
+    public async Task LoadAsync_NoFile_ReturnsEmptyList()
     {
-        if (_favorites.Any(f =>
-            f.NamespaceFqdn == favorite.NamespaceFqdn &&
-            f.EntityPath == favorite.EntityPath &&
-            f.ParentEntityPath == favorite.ParentEntityPath))
-        {
-            return;
-        }
+        await _store.LoadAsync();
 
-        _favorites.Add(favorite);
-        await SaveAsync();
+        Assert.Empty(_store.Favorites);
     }
 
-    public async Task RemoveAsync(Favorite favorite)
+    [Fact]
+    public async Task AddAsync_NewFavorite_AddsTofavorites()
     {
-        _favorites.RemoveAll(f =>
-            f.NamespaceFqdn == favorite.NamespaceFqdn &&
-            f.EntityPath == favorite.EntityPath &&
-            f.ParentEntityPath == favorite.ParentEntityPath);
+        var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
 
-        await SaveAsync();
+        await _store.AddAsync(favorite);
+
+        Assert.Single(_store.Favorites);
+        Assert.Equal("queue1", _store.Favorites[0].EntityPath);
     }
 
-    public bool IsFavorite(string namespaceFqdn, string entityPath, string? parentEntityPath)
+    [Fact]
+    public async Task AddAsync_DuplicateFavorite_DoesNotAddAgain()
     {
-        return _favorites.Any(f =>
-            f.NamespaceFqdn == namespaceFqdn &&
-            f.EntityPath == entityPath &&
-            f.ParentEntityPath == parentEntityPath);
+        var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+
+        await _store.AddAsync(favorite);
+        await _store.AddAsync(favorite);
+
+        Assert.Single(_store.Favorites);
     }
 
-    private async Task SaveAsync()
+    [Fact]
+    public async Task RemoveAsync_ExistingFavorite_RemovesIt()
     {
-        var json = JsonSerializer.Serialize(_favorites, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
+        var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        await _store.AddAsync(favorite);
 
-        await File.WriteAllTextAsync(_filePath, json);
+        await _store.RemoveAsync(favorite);
+
+        Assert.Empty(_store.Favorites);
     }
+
+    [Fact]
+    public async Task IsFavorite_ExistingFavorite_ReturnsTrue()
+    {
+        var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        await _store.AddAsync(favorite);
+
+        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task IsFavorite_NonExistingFavorite_ReturnsFalse()
+    {
+        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task Persistence_SaveAndLoad_RestoresFavorites()
+    {
+        var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        await _store.AddAsync(favorite);
+
+        // Create new store instance pointing to same directory
+        var store2 = new FavoritesStoreForTesting(_testDir);
+        await store2.LoadAsync();
+
+        Assert.Single(store2.Favorites);
+        Assert.Equal("queue1", store2.Favorites[0].EntityPath);
+    }
+}
+
+// Test helper that allows injecting config directory
+internal class FavoritesStoreForTesting : FavoritesStore
+{
+    public FavoritesStoreForTesting(string configDir) : base(configDir) { }
 }
 ```
 
-**Step 2: Build to verify**
+### Step 4: Update FavoritesStore to support testing
 
-```bash
-dotnet build
-```
-
-Expected: Build succeeded.
-
-**Step 3: Commit**
-
-```bash
-git add -A
-git commit -m "feat: add FavoritesStore for persistent favorites"
-```
-
----
-
-## Task 5: AzureDiscoveryService
-
-**Files:**
-- Create: `src/AsbExplorer/Services/AzureDiscoveryService.cs`
-
-**Step 1: Create AzureDiscoveryService**
-
-Create `src/AsbExplorer/Services/AzureDiscoveryService.cs`:
+Modify `src/AsbExplorer/Services/FavoritesStore.cs` to add a constructor that accepts a config directory:
 
 ```csharp
-using Azure.Core;
-using Azure.Identity;
-using Azure.ResourceManager;
-using Azure.ResourceManager.Resources;
-using Azure.ResourceManager.ServiceBus;
-using AsbExplorer.Models;
-
-namespace AsbExplorer.Services;
-
-public class AzureDiscoveryService
+// Add this constructor after the existing one:
+protected FavoritesStore(string configDir)
 {
-    private readonly TokenCredential _credential;
-    private readonly ArmClient _armClient;
-
-    public AzureDiscoveryService()
-    {
-        _credential = new DefaultAzureCredential();
-        _armClient = new ArmClient(_credential);
-    }
-
-    public TokenCredential Credential => _credential;
-
-    public async Task<string?> GetCurrentUserAsync()
-    {
-        try
-        {
-            var context = new TokenRequestContext(["https://management.azure.com/.default"]);
-            var token = await _credential.GetTokenAsync(context, default);
-
-            // Decode JWT to get upn/email (simplified - just check if we can get a token)
-            return token.Token.Length > 0 ? "Authenticated" : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public async IAsyncEnumerable<TreeNodeModel> GetSubscriptionsAsync()
-    {
-        await foreach (var sub in _armClient.GetSubscriptions())
-        {
-            yield return new TreeNodeModel(
-                Id: sub.Data.SubscriptionId,
-                DisplayName: $"{sub.Data.DisplayName} ({sub.Data.SubscriptionId[..8]}...)",
-                NodeType: TreeNodeType.Subscription,
-                SubscriptionId: sub.Data.SubscriptionId
-            );
-        }
-    }
-
-    public async IAsyncEnumerable<TreeNodeModel> GetNamespacesAsync(string subscriptionId)
-    {
-        var sub = _armClient.GetSubscriptionResource(
-            SubscriptionResource.CreateResourceIdentifier(subscriptionId));
-
-        await foreach (var ns in sub.GetServiceBusNamespacesAsync())
-        {
-            var resourceGroup = ns.Id.ResourceGroupName;
-            var fqdn = $"{ns.Data.Name}.servicebus.windows.net";
-
-            yield return new TreeNodeModel(
-                Id: ns.Id.ToString(),
-                DisplayName: ns.Data.Name,
-                NodeType: TreeNodeType.Namespace,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: ns.Data.Name,
-                NamespaceFqdn: fqdn
-            );
-        }
-    }
-
-    public async IAsyncEnumerable<TreeNodeModel> GetQueuesAsync(
-        string subscriptionId,
-        string resourceGroup,
-        string namespaceName,
-        string namespaceFqdn)
-    {
-        var nsId = ServiceBusNamespaceResource.CreateResourceIdentifier(
-            subscriptionId, resourceGroup, namespaceName);
-        var ns = _armClient.GetServiceBusNamespaceResource(nsId);
-
-        await foreach (var queue in ns.GetServiceBusQueues())
-        {
-            // Main queue
-            yield return new TreeNodeModel(
-                Id: queue.Id.ToString(),
-                DisplayName: queue.Data.Name,
-                NodeType: TreeNodeType.Queue,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: namespaceName,
-                NamespaceFqdn: namespaceFqdn,
-                EntityPath: queue.Data.Name
-            );
-
-            // Dead-letter queue
-            yield return new TreeNodeModel(
-                Id: $"{queue.Id}/$deadletterqueue",
-                DisplayName: $"{queue.Data.Name} (DLQ)",
-                NodeType: TreeNodeType.QueueDeadLetter,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: namespaceName,
-                NamespaceFqdn: namespaceFqdn,
-                EntityPath: $"{queue.Data.Name}/$deadletterqueue"
-            );
-        }
-    }
-
-    public async IAsyncEnumerable<TreeNodeModel> GetTopicsAsync(
-        string subscriptionId,
-        string resourceGroup,
-        string namespaceName,
-        string namespaceFqdn)
-    {
-        var nsId = ServiceBusNamespaceResource.CreateResourceIdentifier(
-            subscriptionId, resourceGroup, namespaceName);
-        var ns = _armClient.GetServiceBusNamespaceResource(nsId);
-
-        await foreach (var topic in ns.GetServiceBusTopics())
-        {
-            yield return new TreeNodeModel(
-                Id: topic.Id.ToString(),
-                DisplayName: topic.Data.Name,
-                NodeType: TreeNodeType.Topic,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: namespaceName,
-                NamespaceFqdn: namespaceFqdn,
-                EntityPath: topic.Data.Name
-            );
-        }
-    }
-
-    public async IAsyncEnumerable<TreeNodeModel> GetTopicSubscriptionsAsync(
-        string subscriptionId,
-        string resourceGroup,
-        string namespaceName,
-        string namespaceFqdn,
-        string topicName)
-    {
-        var topicId = ServiceBusTopicResource.CreateResourceIdentifier(
-            subscriptionId, resourceGroup, namespaceName, topicName);
-        var topic = _armClient.GetServiceBusTopicResource(topicId);
-
-        await foreach (var sub in topic.GetServiceBusSubscriptions())
-        {
-            // Main subscription
-            yield return new TreeNodeModel(
-                Id: sub.Id.ToString(),
-                DisplayName: sub.Data.Name,
-                NodeType: TreeNodeType.TopicSubscription,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: namespaceName,
-                NamespaceFqdn: namespaceFqdn,
-                EntityPath: sub.Data.Name,
-                ParentEntityPath: topicName
-            );
-
-            // Dead-letter queue
-            yield return new TreeNodeModel(
-                Id: $"{sub.Id}/$deadletterqueue",
-                DisplayName: $"{sub.Data.Name} (DLQ)",
-                NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
-                SubscriptionId: subscriptionId,
-                ResourceGroupName: resourceGroup,
-                NamespaceName: namespaceName,
-                NamespaceFqdn: namespaceFqdn,
-                EntityPath: $"{sub.Data.Name}/$deadletterqueue",
-                ParentEntityPath: topicName
-            );
-        }
-    }
+    Directory.CreateDirectory(configDir);
+    _filePath = Path.Combine(configDir, "favorites.json");
 }
 ```
 
-**Step 2: Build to verify**
+### Step 5: Run tests
 
 ```bash
-dotnet build
+dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: All tests pass.
 
-**Step 3: Commit**
+### Step 6: Commit
 
 ```bash
 git add -A
-git commit -m "feat: add AzureDiscoveryService for subscription/namespace discovery"
+git commit -m "test: add retroactive tests for MessageFormatter and FavoritesStore"
 ```
 
 ---
 
-## Task 6: MessagePeekService
+## Task 8: Display Helpers (TDD)
+
+Extract testable display logic from Views into helper classes.
 
 **Files:**
-- Create: `src/AsbExplorer/Services/MessagePeekService.cs`
+- Create: `src/AsbExplorer.Tests/Helpers/DisplayHelpersTests.cs`
+- Create: `src/AsbExplorer/Helpers/DisplayHelpers.cs`
 
-**Step 1: Create MessagePeekService**
+### RED: Write failing tests
 
-Create `src/AsbExplorer/Services/MessagePeekService.cs`:
+Create `src/AsbExplorer.Tests/Helpers/DisplayHelpersTests.cs`:
 
 ```csharp
-using Azure.Core;
-using Azure.Messaging.ServiceBus;
-using AsbExplorer.Models;
+using AsbExplorer.Helpers;
 
-namespace AsbExplorer.Services;
+namespace AsbExplorer.Tests.Helpers;
 
-public class MessagePeekService : IAsyncDisposable
+public class DisplayHelpersTests
 {
-    private readonly TokenCredential _credential;
-    private ServiceBusClient? _client;
-    private string? _currentNamespace;
-
-    public MessagePeekService(TokenCredential credential)
+    public class TruncateIdTests
     {
-        _credential = credential;
-    }
-
-    public async Task<IReadOnlyList<PeekedMessage>> PeekMessagesAsync(
-        string namespaceFqdn,
-        string entityPath,
-        string? topicName,
-        bool isDeadLetter,
-        int maxMessages = 50,
-        long? fromSequenceNumber = null)
-    {
-        var client = GetOrCreateClient(namespaceFqdn);
-
-        ServiceBusReceiver receiver;
-
-        if (topicName is not null)
+        [Fact]
+        public void TruncateId_ShortId_ReturnsUnchanged()
         {
-            // Topic subscription
-            var subName = isDeadLetter
-                ? entityPath.Replace("/$deadletterqueue", "")
-                : entityPath;
-
-            var options = new ServiceBusReceiverOptions
-            {
-                SubQueue = isDeadLetter ? SubQueue.DeadLetter : SubQueue.None
-            };
-
-            receiver = client.CreateReceiver(topicName, subName, options);
-        }
-        else
-        {
-            // Queue
-            var queueName = isDeadLetter
-                ? entityPath.Replace("/$deadletterqueue", "")
-                : entityPath;
-
-            var options = new ServiceBusReceiverOptions
-            {
-                SubQueue = isDeadLetter ? SubQueue.DeadLetter : SubQueue.None
-            };
-
-            receiver = client.CreateReceiver(queueName, options);
+            var result = DisplayHelpers.TruncateId("short", 12);
+            Assert.Equal("short", result);
         }
 
-        await using (receiver)
+        [Fact]
+        public void TruncateId_LongId_TruncatesWithEllipsis()
         {
-            var messages = fromSequenceNumber.HasValue
-                ? await receiver.PeekMessagesAsync(maxMessages, fromSequenceNumber.Value)
-                : await receiver.PeekMessagesAsync(maxMessages);
+            var result = DisplayHelpers.TruncateId("this-is-a-very-long-id", 12);
+            Assert.Equal("this-is-a-ve...", result);
+        }
 
-            return messages.Select(m => new PeekedMessage(
-                MessageId: m.MessageId,
-                SequenceNumber: m.SequenceNumber,
-                EnqueuedTime: m.EnqueuedTime,
-                DeliveryCount: m.DeliveryCount,
-                ContentType: m.ContentType,
-                CorrelationId: m.CorrelationId,
-                SessionId: m.SessionId,
-                TimeToLive: m.TimeToLive,
-                ScheduledEnqueueTime: m.ScheduledEnqueueTime == default
-                    ? null
-                    : m.ScheduledEnqueueTime,
-                ApplicationProperties: m.ApplicationProperties,
-                Body: m.Body
-            )).ToList();
+        [Fact]
+        public void TruncateId_ExactLength_ReturnsUnchanged()
+        {
+            var result = DisplayHelpers.TruncateId("exactly12chr", 12);
+            Assert.Equal("exactly12chr", result);
         }
     }
 
-    private ServiceBusClient GetOrCreateClient(string namespaceFqdn)
+    public class FormatRelativeTimeTests
     {
-        if (_client is null || _currentNamespace != namespaceFqdn)
+        [Fact]
+        public void FormatRelativeTime_JustNow_ReturnsJustNow()
         {
-            _client?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            _client = new ServiceBusClient(namespaceFqdn, _credential);
-            _currentNamespace = namespaceFqdn;
+            var time = DateTimeOffset.UtcNow.AddSeconds(-30);
+            var result = DisplayHelpers.FormatRelativeTime(time);
+            Assert.Equal("just now", result);
         }
 
-        return _client;
+        [Fact]
+        public void FormatRelativeTime_MinutesAgo_ReturnsMinutes()
+        {
+            var time = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var result = DisplayHelpers.FormatRelativeTime(time);
+            Assert.Equal("5m ago", result);
+        }
+
+        [Fact]
+        public void FormatRelativeTime_HoursAgo_ReturnsHours()
+        {
+            var time = DateTimeOffset.UtcNow.AddHours(-3);
+            var result = DisplayHelpers.FormatRelativeTime(time);
+            Assert.Equal("3h ago", result);
+        }
+
+        [Fact]
+        public void FormatRelativeTime_DaysAgo_ReturnsDays()
+        {
+            var time = DateTimeOffset.UtcNow.AddDays(-2);
+            var result = DisplayHelpers.FormatRelativeTime(time);
+            Assert.Equal("2d ago", result);
+        }
     }
 
-    public async ValueTask DisposeAsync()
+    public class FormatSizeTests
     {
-        if (_client is not null)
+        [Fact]
+        public void FormatSize_Bytes_ReturnsBytes()
         {
-            await _client.DisposeAsync();
+            var result = DisplayHelpers.FormatSize(500);
+            Assert.Equal("500B", result);
+        }
+
+        [Fact]
+        public void FormatSize_Kilobytes_ReturnsKB()
+        {
+            var result = DisplayHelpers.FormatSize(2048);
+            Assert.Equal("2.0KB", result);
+        }
+
+        [Fact]
+        public void FormatSize_Megabytes_ReturnsMB()
+        {
+            var result = DisplayHelpers.FormatSize(2 * 1024 * 1024);
+            Assert.Equal("2.0MB", result);
         }
     }
 }
 ```
 
-**Step 2: Build to verify**
+### Verify RED
 
 ```bash
-dotnet build
+dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: Tests fail (DisplayHelpers class doesn't exist).
 
-**Step 3: Commit**
+### GREEN: Implement DisplayHelpers
+
+Create `src/AsbExplorer/Helpers/DisplayHelpers.cs`:
+
+```csharp
+namespace AsbExplorer.Helpers;
+
+public static class DisplayHelpers
+{
+    public static string TruncateId(string id, int maxLength)
+    {
+        return id.Length > maxLength ? $"{id[..maxLength]}..." : id;
+    }
+
+    public static string FormatRelativeTime(DateTimeOffset time)
+    {
+        var diff = DateTimeOffset.UtcNow - time;
+
+        return diff.TotalMinutes switch
+        {
+            < 1 => "just now",
+            < 60 => $"{(int)diff.TotalMinutes}m ago",
+            < 1440 => $"{(int)diff.TotalHours}h ago",
+            _ => $"{(int)diff.TotalDays}d ago"
+        };
+    }
+
+    public static string FormatSize(long bytes)
+    {
+        return bytes switch
+        {
+            < 1024 => $"{bytes}B",
+            < 1024 * 1024 => $"{bytes / 1024.0:F1}KB",
+            _ => $"{bytes / (1024.0 * 1024.0):F1}MB"
+        };
+    }
+}
+```
+
+### Verify GREEN
+
+```bash
+dotnet test
+```
+
+Expected: All tests pass.
+
+### Commit
 
 ```bash
 git add -A
-git commit -m "feat: add MessagePeekService for peeking messages"
+git commit -m "feat: add DisplayHelpers with TDD for formatting logic"
 ```
 
 ---
 
-## Task 7: TreePanel View
+## Task 9: TreePanel View
 
 **Files:**
 - Create: `src/AsbExplorer/Views/TreePanel.cs`
 
-**Step 1: Create TreePanel**
+Since TreePanel is tightly coupled to Terminal.Gui TreeView, we implement it directly (UI wiring is hard to unit test). The data fetching logic is already tested via AzureDiscoveryService.
+
+### Step 1: Create TreePanel
 
 Create `src/AsbExplorer/Views/TreePanel.cs`:
 
@@ -921,8 +518,8 @@ public class TreePanel : FrameView
     public event Action<TreeNodeModel>? NodeSelected;
 
     public TreePanel(AzureDiscoveryService discoveryService, FavoritesStore favoritesStore)
-        : base("Explorer")
     {
+        Title = "Explorer";
         _discoveryService = discoveryService;
         _favoritesStore = favoritesStore;
 
@@ -932,7 +529,7 @@ public class TreePanel : FrameView
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(GetChildrenAsync)
+            TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(GetChildren)
         };
 
         _treeView.SelectionChanged += (s, e) =>
@@ -952,12 +549,12 @@ public class TreePanel : FrameView
         {
             new(
                 Id: "favorites",
-                DisplayName: "⭐ Favorites",
+                DisplayName: "Favorites",
                 NodeType: TreeNodeType.FavoritesRoot
             ),
             new(
                 Id: "subscriptions",
-                DisplayName: "📁 Azure Subscriptions",
+                DisplayName: "Azure Subscriptions",
                 NodeType: TreeNodeType.SubscriptionsRoot
             )
         };
@@ -970,7 +567,7 @@ public class TreePanel : FrameView
         _treeView.SetNeedsDisplay();
     }
 
-    private IEnumerable<TreeNodeModel> GetChildrenAsync(TreeNodeModel node)
+    private IEnumerable<TreeNodeModel> GetChildren(TreeNodeModel node)
     {
         return node.NodeType switch
         {
@@ -997,14 +594,12 @@ public class TreePanel : FrameView
 
     private IEnumerable<TreeNodeModel> GetSubscriptions()
     {
-        return _discoveryService.GetSubscriptionsAsync()
-            .ToBlockingEnumerable();
+        return _discoveryService.GetSubscriptionsAsync().ToBlockingEnumerable();
     }
 
     private IEnumerable<TreeNodeModel> GetNamespaces(TreeNodeModel sub)
     {
-        return _discoveryService.GetNamespacesAsync(sub.SubscriptionId!)
-            .ToBlockingEnumerable();
+        return _discoveryService.GetNamespacesAsync(sub.SubscriptionId!).ToBlockingEnumerable();
     }
 
     private IEnumerable<TreeNodeModel> GetQueuesAndTopics(TreeNodeModel ns)
@@ -1039,7 +634,7 @@ public class TreePanel : FrameView
 }
 ```
 
-**Step 2: Build to verify**
+### Step 2: Build to verify
 
 ```bash
 dotnet build
@@ -1047,7 +642,7 @@ dotnet build
 
 Expected: Build succeeded.
 
-**Step 3: Commit**
+### Step 3: Commit
 
 ```bash
 git add -A
@@ -1056,18 +651,21 @@ git commit -m "feat: add TreePanel view for navigation"
 
 ---
 
-## Task 8: MessageListView
+## Task 10: MessageListView
 
 **Files:**
 - Create: `src/AsbExplorer/Views/MessageListView.cs`
 
-**Step 1: Create MessageListView**
+Uses DisplayHelpers for formatting (already tested).
+
+### Step 1: Create MessageListView
 
 Create `src/AsbExplorer/Views/MessageListView.cs`:
 
 ```csharp
 using Terminal.Gui;
 using AsbExplorer.Models;
+using AsbExplorer.Helpers;
 
 namespace AsbExplorer.Views;
 
@@ -1079,8 +677,10 @@ public class MessageListView : FrameView
 
     public event Action<PeekedMessage>? MessageSelected;
 
-    public MessageListView() : base("Messages")
+    public MessageListView()
     {
+        Title = "Messages";
+
         _dataTable = new DataTable();
         _dataTable.Columns.Add("MessageId", typeof(string));
         _dataTable.Columns.Add("Enqueued", typeof(string));
@@ -1125,9 +725,9 @@ public class MessageListView : FrameView
         foreach (var msg in messages)
         {
             _dataTable.Rows.Add(
-                TruncateId(msg.MessageId),
-                FormatRelativeTime(msg.EnqueuedTime),
-                FormatSize(msg.BodySizeBytes),
+                DisplayHelpers.TruncateId(msg.MessageId, 12),
+                DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime),
+                DisplayHelpers.FormatSize(msg.BodySizeBytes),
                 msg.DeliveryCount,
                 msg.ContentType ?? "-"
             );
@@ -1143,34 +743,6 @@ public class MessageListView : FrameView
         _dataTable.Rows.Clear();
         _tableView.Table = new DataTableSource(_dataTable);
         _tableView.SetNeedsDisplay();
-    }
-
-    private static string TruncateId(string id)
-    {
-        return id.Length > 12 ? $"{id[..12]}..." : id;
-    }
-
-    private static string FormatRelativeTime(DateTimeOffset time)
-    {
-        var diff = DateTimeOffset.UtcNow - time;
-
-        return diff.TotalMinutes switch
-        {
-            < 1 => "just now",
-            < 60 => $"{(int)diff.TotalMinutes}m ago",
-            < 1440 => $"{(int)diff.TotalHours}h ago",
-            _ => $"{(int)diff.TotalDays}d ago"
-        };
-    }
-
-    private static string FormatSize(long bytes)
-    {
-        return bytes switch
-        {
-            < 1024 => $"{bytes}B",
-            < 1024 * 1024 => $"{bytes / 1024.0:F1}KB",
-            _ => $"{bytes / (1024.0 * 1024.0):F1}MB"
-        };
     }
 }
 
@@ -1223,15 +795,15 @@ public class DataTableSource : ITableSource
 }
 ```
 
-**Step 2: Build to verify**
+### Step 2: Build and run tests
 
 ```bash
-dotnet build
+dotnet build && dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: Build succeeded, all tests pass.
 
-**Step 3: Commit**
+### Step 3: Commit
 
 ```bash
 git add -A
@@ -1240,12 +812,12 @@ git commit -m "feat: add MessageListView with table display"
 
 ---
 
-## Task 9: MessageDetailView
+## Task 11: MessageDetailView
 
 **Files:**
 - Create: `src/AsbExplorer/Views/MessageDetailView.cs`
 
-**Step 1: Create MessageDetailView**
+### Step 1: Create MessageDetailView
 
 Create `src/AsbExplorer/Views/MessageDetailView.cs`:
 
@@ -1264,8 +836,9 @@ public class MessageDetailView : FrameView
     private readonly MessageFormatter _formatter;
     private readonly DataTable _propsDataTable;
 
-    public MessageDetailView(MessageFormatter formatter) : base("Details")
+    public MessageDetailView(MessageFormatter formatter)
     {
+        Title = "Details";
         _formatter = formatter;
 
         _tabView = new TabView
@@ -1361,15 +934,15 @@ public class MessageDetailView : FrameView
 }
 ```
 
-**Step 2: Build to verify**
+### Step 2: Build and run tests
 
 ```bash
-dotnet build
+dotnet build && dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: Build succeeded, all tests pass.
 
-**Step 3: Commit**
+### Step 3: Commit
 
 ```bash
 git add -A
@@ -1378,13 +951,13 @@ git commit -m "feat: add MessageDetailView with properties and body tabs"
 
 ---
 
-## Task 10: MainWindow Integration
+## Task 12: MainWindow Integration
 
 **Files:**
 - Create: `src/AsbExplorer/Views/MainWindow.cs`
 - Modify: `src/AsbExplorer/Program.cs`
 
-**Step 1: Create MainWindow**
+### Step 1: Create MainWindow
 
 Create `src/AsbExplorer/Views/MainWindow.cs`:
 
@@ -1401,10 +974,8 @@ public class MainWindow : Window
     private readonly MessageListView _messageList;
     private readonly MessageDetailView _messageDetail;
     private readonly StatusBar _statusBar;
-    private readonly AzureDiscoveryService _discoveryService;
     private readonly MessagePeekService _peekService;
     private readonly FavoritesStore _favoritesStore;
-    private readonly MessageFormatter _formatter;
 
     private TreeNodeModel? _currentNode;
 
@@ -1412,20 +983,19 @@ public class MainWindow : Window
         AzureDiscoveryService discoveryService,
         MessagePeekService peekService,
         FavoritesStore favoritesStore,
-        MessageFormatter formatter) : base("Azure Service Bus Explorer")
+        MessageFormatter formatter)
     {
-        _discoveryService = discoveryService;
+        Title = "Azure Service Bus Explorer";
         _peekService = peekService;
         _favoritesStore = favoritesStore;
-        _formatter = formatter;
 
         X = 0;
         Y = 0;
         Width = Dim.Fill();
-        Height = Dim.Fill() - 1; // Leave room for status bar
+        Height = Dim.Fill() - 1;
 
         // Left panel - Tree (30% width)
-        _treePanel = new TreePanel(_discoveryService, _favoritesStore)
+        _treePanel = new TreePanel(discoveryService, favoritesStore)
         {
             X = 0,
             Y = 0,
@@ -1452,7 +1022,7 @@ public class MainWindow : Window
         };
 
         // Message detail (bottom 60% of right panel)
-        _messageDetail = new MessageDetailView(_formatter)
+        _messageDetail = new MessageDetailView(formatter)
         {
             X = 0,
             Y = Pos.Bottom(_messageList),
@@ -1520,7 +1090,7 @@ public class MainWindow : Window
         _messageDetail.SetMessage(message);
     }
 
-    private async void RefreshCurrentNode()
+    private void RefreshCurrentNode()
     {
         if (_currentNode is not null)
         {
@@ -1539,7 +1109,7 @@ public class MainWindow : Window
 
         var entityType = _currentNode.NodeType switch
         {
-            TreeNodeType.Favorite => TreeNodeType.Queue, // Best guess
+            TreeNodeType.Favorite => TreeNodeType.Queue,
             _ => _currentNode.NodeType
         };
 
@@ -1567,7 +1137,7 @@ public class MainWindow : Window
 }
 ```
 
-**Step 2: Update Program.cs**
+### Step 2: Update Program.cs
 
 Replace `src/AsbExplorer/Program.cs`:
 
@@ -1577,7 +1147,6 @@ using Terminal.Gui;
 using AsbExplorer.Services;
 using AsbExplorer.Views;
 
-// Set up DI
 var services = new ServiceCollection();
 services.AddSingleton<AzureDiscoveryService>();
 services.AddSingleton<FavoritesStore>();
@@ -1594,13 +1163,7 @@ try
 {
     var mainWindow = provider.GetRequiredService<MainWindow>();
 
-    Application.Top.Add(mainWindow);
-    Application.Top.Add(mainWindow.StatusBar);
-
-    // Initialize async data
-    await mainWindow.InitializeAsync();
-
-    Application.Run();
+    Application.Run(mainWindow);
 }
 finally
 {
@@ -1613,15 +1176,15 @@ finally
 }
 ```
 
-**Step 3: Build to verify**
+### Step 3: Build and run tests
 
 ```bash
-dotnet build
+dotnet build && dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: Build succeeded, all tests pass.
 
-**Step 4: Commit**
+### Step 4: Commit
 
 ```bash
 git add -A
@@ -1630,17 +1193,18 @@ git commit -m "feat: integrate all views in MainWindow with DI"
 
 ---
 
-## Task 11: Final Verification
+## Task 13: Final Verification
 
-**Step 1: Full build**
+### Step 1: Full build and tests
 
 ```bash
 dotnet build --configuration Release
+dotnet test
 ```
 
-Expected: Build succeeded.
+Expected: Build succeeded, all tests pass.
 
-**Step 2: Smoke test (manual)**
+### Step 2: Smoke test (manual)
 
 ```bash
 dotnet run --project src/AsbExplorer
@@ -1648,11 +1212,11 @@ dotnet run --project src/AsbExplorer
 
 Expected: TUI launches, shows tree with Favorites and Azure Subscriptions nodes.
 
-**Step 3: Commit release-ready state**
+### Step 3: Commit
 
 ```bash
 git add -A
-git commit -m "chore: verify release build" --allow-empty
+git commit -m "chore: verify release build and tests pass"
 ```
 
 ---
@@ -1661,7 +1225,13 @@ git commit -m "chore: verify release build" --allow-empty
 
 After completing all tasks:
 - Solution builds with `dotnet build`
+- All tests pass with `dotnet test`
 - TUI launches with tree navigation
 - Azure subscriptions discoverable via DefaultAzureCredential
 - Messages can be peeked from queues/subscriptions
 - Favorites persist to `~/.config/asb-explorer/favorites.json`
+
+**Test coverage:**
+- MessageFormatter: JSON, XML, hex, text formatting
+- FavoritesStore: CRUD operations, persistence
+- DisplayHelpers: ID truncation, relative time, size formatting
