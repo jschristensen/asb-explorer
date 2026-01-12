@@ -5,24 +5,30 @@ using AsbExplorer.Views;
 
 // Set up DI
 var services = new ServiceCollection();
-services.AddSingleton<AzureDiscoveryService>();
+services.AddSingleton<ConnectionStore>();
 services.AddSingleton<FavoritesStore>();
 services.AddSingleton<MessageFormatter>();
-services.AddSingleton(sp =>
-    new MessagePeekService(sp.GetRequiredService<AzureDiscoveryService>().Credential));
+services.AddSingleton<ServiceBusConnectionService>();
+services.AddSingleton<MessagePeekService>();
 services.AddSingleton<MainWindow>();
 
 var provider = services.BuildServiceProvider();
 
+// Load data BEFORE Application.Init() to avoid sync context deadlock
+var favoritesStore = provider.GetRequiredService<FavoritesStore>();
+var connectionStore = provider.GetRequiredService<ConnectionStore>();
+await favoritesStore.LoadAsync();
+await connectionStore.LoadAsync();
+
 Application.Init();
+
+// Set Ctrl+Q as the quit key (v2 default is Esc)
+Application.QuitKey = Key.Q.WithCtrl;
 
 try
 {
     var mainWindow = provider.GetRequiredService<MainWindow>();
-
-    // Initialize async data before running
-    await mainWindow.InitializeAsync();
-
+    mainWindow.LoadInitialData();
     Application.Run(mainWindow);
 }
 finally

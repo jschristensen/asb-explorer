@@ -38,7 +38,7 @@ public class FavoritesStore
 
         try
         {
-            var json = await File.ReadAllTextAsync(_filePath);
+            var json = await File.ReadAllTextAsync(_filePath).ConfigureAwait(false);
             _favorites = JsonSerializer.Deserialize<List<Favorite>>(json) ?? [];
         }
         catch
@@ -50,7 +50,7 @@ public class FavoritesStore
     public async Task AddAsync(Favorite favorite)
     {
         if (_favorites.Any(f =>
-            f.NamespaceFqdn == favorite.NamespaceFqdn &&
+            f.ConnectionName == favorite.ConnectionName &&
             f.EntityPath == favorite.EntityPath &&
             f.ParentEntityPath == favorite.ParentEntityPath))
         {
@@ -64,17 +64,17 @@ public class FavoritesStore
     public async Task RemoveAsync(Favorite favorite)
     {
         _favorites.RemoveAll(f =>
-            f.NamespaceFqdn == favorite.NamespaceFqdn &&
+            f.ConnectionName == favorite.ConnectionName &&
             f.EntityPath == favorite.EntityPath &&
             f.ParentEntityPath == favorite.ParentEntityPath);
 
         await SaveAsync();
     }
 
-    public bool IsFavorite(string namespaceFqdn, string entityPath, string? parentEntityPath)
+    public bool IsFavorite(string connectionName, string entityPath, string? parentEntityPath)
     {
         return _favorites.Any(f =>
-            f.NamespaceFqdn == namespaceFqdn &&
+            f.ConnectionName == connectionName &&
             f.EntityPath == entityPath &&
             f.ParentEntityPath == parentEntityPath);
     }
@@ -86,6 +86,6 @@ public class FavoritesStore
             WriteIndented = true
         });
 
-        await File.WriteAllTextAsync(_filePath, json);
+        await File.WriteAllTextAsync(_filePath, json).ConfigureAwait(false);
     }
 }

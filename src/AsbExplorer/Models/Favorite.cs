@@ -1,13 +1,13 @@
 namespace AsbExplorer.Models;
 
 public record Favorite(
-    string NamespaceFqdn,
+    string ConnectionName,
     string EntityPath,
     TreeNodeType EntityType,
     string? ParentEntityPath = null
 )
 {
     public string DisplayName => ParentEntityPath is null
-        ? $"{NamespaceFqdn}/{EntityPath}"
-        : $"{NamespaceFqdn}/{ParentEntityPath}/{EntityPath}";
+        ? $"{ConnectionName}/{EntityPath}"
+        : $"{ConnectionName}/{ParentEntityPath}/{EntityPath}";
 }

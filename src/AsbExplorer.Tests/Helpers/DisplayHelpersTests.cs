@@ -86,4 +86,53 @@ public class DisplayHelpersTests
             Assert.Equal("2.0MB", result);
         }
     }
+
+    public class CalculatePropertyColumnWidthTests
+    {
+        [Fact]
+        public void CalculatePropertyColumnWidth_EmptyList_ReturnsMinimumWidth()
+        {
+            var result = DisplayHelpers.CalculatePropertyColumnWidth([]);
+            Assert.Equal(10, result); // Minimum sensible width
+        }
+
+        [Fact]
+        public void CalculatePropertyColumnWidth_SingleProperty_ReturnsLengthPlusPadding()
+        {
+            var result = DisplayHelpers.CalculatePropertyColumnWidth(["MessageId"]);
+            Assert.Equal(11, result); // 9 + 2 padding
+        }
+
+        [Fact]
+        public void CalculatePropertyColumnWidth_MultipleProperties_ReturnsMaxLengthPlusPadding()
+        {
+            var result = DisplayHelpers.CalculatePropertyColumnWidth([
+                "MessageId",           // 9
+                "ScheduledEnqueueTime", // 20
+                "BodySize"             // 8
+            ]);
+            Assert.Equal(22, result); // 20 + 2 padding
+        }
+
+        [Fact]
+        public void CalculatePropertyColumnWidth_WithNulls_IgnoresNulls()
+        {
+            var result = DisplayHelpers.CalculatePropertyColumnWidth([
+                "MessageId",
+                null!,
+                "BodySize"
+            ]);
+            Assert.Equal(11, result); // 9 + 2 padding
+        }
+
+        [Fact]
+        public void CalculatePropertyColumnWidth_WithAppProperties_IncludesPrefix()
+        {
+            var result = DisplayHelpers.CalculatePropertyColumnWidth([
+                "MessageId",
+                "[App] SomeLongPropertyName" // 26
+            ]);
+            Assert.Equal(28, result); // 26 + 2 padding
+        }
+    }
 }

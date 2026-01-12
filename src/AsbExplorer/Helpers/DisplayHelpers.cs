@@ -29,4 +29,18 @@ public static class DisplayHelpers
             _ => $"{bytes / (1024.0 * 1024.0):F1}MB"
         };
     }
+
+    private const int MinPropertyColumnWidth = 10;
+    private const int PropertyColumnPadding = 2;
+
+    public static int CalculatePropertyColumnWidth(IEnumerable<string> propertyNames)
+    {
+        var maxLength = propertyNames
+            .Where(n => n is not null)
+            .Select(n => n.Length)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return Math.Max(maxLength + PropertyColumnPadding, MinPropertyColumnWidth);
+    }
 }

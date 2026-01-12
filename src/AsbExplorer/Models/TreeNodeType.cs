@@ -4,9 +4,7 @@ public enum TreeNodeType
 {
     FavoritesRoot,
     Favorite,
-    SubscriptionsRoot,
-    Subscription,
-    ResourceGroup,
+    ConnectionsRoot,
     Namespace,
     Queue,
     QueueDeadLetter,

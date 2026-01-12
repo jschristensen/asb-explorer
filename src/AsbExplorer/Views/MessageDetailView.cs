@@ -1,6 +1,7 @@
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
+using AsbExplorer.Helpers;
 
 namespace AsbExplorer.Views;
 
@@ -39,6 +40,12 @@ public class MessageDetailView : FrameView
             Table = new DataTableSource(_propsDataTable),
             FullRowSelect = true
         };
+
+        // Value column expands to fill remaining space
+        _propertiesTable.Style.ExpandLastColumn = true;
+
+        // Double-click to show full property value in popup
+        _propertiesTable.CellActivated += OnCellActivated;
 
         var propsTab = new Tab { DisplayText = "Properties", View = _propertiesTable };
 
@@ -89,6 +96,21 @@ public class MessageDetailView : FrameView
             _propsDataTable.Rows.Add($"[App] {prop.Key}", prop.Value?.ToString() ?? "null");
         }
 
+        // Calculate and set fixed column width based on property names
+        var propertyNames = _propsDataTable.Rows.Select(r => r.Values[0]?.ToString()!);
+        var propertyColumnWidth = DisplayHelpers.CalculatePropertyColumnWidth(propertyNames);
+
+        _propertiesTable.Style.ColumnStyles.Clear();
+        _propertiesTable.Style.ColumnStyles.Add(0, new ColumnStyle
+        {
+            MinWidth = propertyColumnWidth,
+            MaxWidth = propertyColumnWidth
+        });
+        _propertiesTable.Style.ColumnStyles.Add(1, new ColumnStyle
+        {
+            MinAcceptableWidth = 1
+        });
+
         _propertiesTable.Table = new DataTableSource(_propsDataTable);
         _propertiesTable.SetNeedsDraw();
 
@@ -96,6 +118,41 @@ public class MessageDetailView : FrameView
         var (content, format) = _formatter.Format(message.Body, message.ContentType);
         _bodyView.Text = $"[{format.ToUpper()}]\n\n{content}";
         _bodyView.SetNeedsDraw();
+    }
+
+    private void OnCellActivated(object? sender, CellActivatedEventArgs e)
+    {
+        if (e.Row < 0 || e.Row >= _propsDataTable.Rows.Count)
+            return;
+
+        var propertyName = _propsDataTable.Rows[e.Row].Values[0]?.ToString() ?? "";
+        var value = _propsDataTable.Rows[e.Row].Values[1]?.ToString() ?? "";
+
+        var textView = new TextView
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = Dim.Fill(),
+            Text = $"{propertyName}\n\n{value}",
+            ReadOnly = true,
+            WordWrap = true
+        };
+
+        var dialog = new Dialog
+        {
+            Title = "Property Detail",
+            Width = Dim.Percent(60),
+            Height = Dim.Percent(60)
+        };
+
+        var closeButton = new Button { Text = "Close", IsDefault = true };
+        closeButton.Accepting += (s, e) => Application.RequestStop();
+
+        dialog.Add(textView);
+        dialog.AddButton(closeButton);
+
+        Application.Run(dialog);
     }
 
     public void Clear()

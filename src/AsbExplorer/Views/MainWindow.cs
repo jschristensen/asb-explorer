@@ -11,18 +11,21 @@ public class MainWindow : Window
     private readonly MessageDetailView _messageDetail;
     private readonly MessagePeekService _peekService;
     private readonly FavoritesStore _favoritesStore;
+    private readonly ConnectionStore _connectionStore;
 
     private TreeNodeModel? _currentNode;
 
     public MainWindow(
-        AzureDiscoveryService discoveryService,
+        ServiceBusConnectionService connectionService,
+        ConnectionStore connectionStore,
         MessagePeekService peekService,
         FavoritesStore favoritesStore,
         MessageFormatter formatter)
     {
-        Title = "Azure Service Bus Explorer (Ctrl+Q to quit)";
+        Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
         _favoritesStore = favoritesStore;
+        _connectionStore = connectionStore;
 
         X = 0;
         Y = 0;
@@ -30,7 +33,7 @@ public class MainWindow : Window
         Height = Dim.Fill();
 
         // Left panel - Tree (30% width)
-        _treePanel = new TreePanel(discoveryService, favoritesStore)
+        _treePanel = new TreePanel(connectionService, connectionStore, favoritesStore)
         {
             X = 0,
             Y = 0,
@@ -70,33 +73,30 @@ public class MainWindow : Window
 
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
+        _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
         _messageList.MessageSelected += OnMessageSelected;
-
-        // Key bindings
-        KeyDown += (s, e) =>
-        {
-            if (e.KeyCode == (KeyCode.Q | KeyCode.CtrlMask))
-            {
-                Application.RequestStop();
-                e.Handled = true;
-            }
-            else if (e.KeyCode == KeyCode.R)
-            {
-                RefreshCurrentNode();
-                e.Handled = true;
-            }
-            else if (e.KeyCode == KeyCode.F)
-            {
-                _ = ToggleFavoriteAsync();
-                e.Handled = true;
-            }
-        };
     }
 
-    public async Task InitializeAsync()
+    public void LoadInitialData()
     {
-        await _favoritesStore.LoadAsync();
-        await _treePanel.LoadRootNodesAsync();
+        // Data is already loaded before Application.Init() to avoid sync context deadlock
+        _treePanel.LoadRootNodes();
+    }
+
+    private void ShowAddConnectionDialog()
+    {
+        var dialog = new AddConnectionDialog();
+        Application.Run(dialog);
+
+        if (dialog.Confirmed && dialog.ConnectionName is not null && dialog.ConnectionString is not null)
+        {
+            var connection = new ServiceBusConnection(dialog.ConnectionName, dialog.ConnectionString);
+            _ = Task.Run(async () =>
+            {
+                await _connectionStore.AddAsync(connection);
+                Application.Invoke(() => _treePanel.RefreshConnections());
+            });
+        }
     }
 
     private async void OnNodeSelected(TreeNodeModel node)
@@ -105,7 +105,7 @@ public class MainWindow : Window
         _messageList.Clear();
         _messageDetail.Clear();
 
-        if (!node.CanPeekMessages || node.NamespaceFqdn is null)
+        if (!node.CanPeekMessages || node.ConnectionName is null)
         {
             return;
         }
@@ -116,12 +116,18 @@ public class MainWindow : Window
                 TreeNodeType.QueueDeadLetter or
                 TreeNodeType.TopicSubscriptionDeadLetter;
 
-            var messages = await _peekService.PeekMessagesAsync(
-                node.NamespaceFqdn,
+            var topicName = node.NodeType is
+                TreeNodeType.TopicSubscription or
+                TreeNodeType.TopicSubscriptionDeadLetter
+                ? node.ParentEntityPath
+                : null;
+
+            var messages = await Task.Run(() => _peekService.PeekMessagesAsync(
+                node.ConnectionName,
                 node.EntityPath!,
-                node.ParentEntityPath,
+                topicName,
                 isDeadLetter
-            );
+            ));
 
             _messageList.SetMessages(messages);
         }
@@ -148,7 +154,7 @@ public class MainWindow : Window
     {
         if (_currentNode is null ||
             !_currentNode.CanPeekMessages ||
-            _currentNode.NamespaceFqdn is null)
+            _currentNode.ConnectionName is null)
         {
             return;
         }
@@ -160,14 +166,14 @@ public class MainWindow : Window
         };
 
         var favorite = new Favorite(
-            _currentNode.NamespaceFqdn,
+            _currentNode.ConnectionName,
             _currentNode.EntityPath!,
             entityType,
             _currentNode.ParentEntityPath
         );
 
         if (_favoritesStore.IsFavorite(
-            _currentNode.NamespaceFqdn,
+            _currentNode.ConnectionName,
             _currentNode.EntityPath!,
             _currentNode.ParentEntityPath))
         {

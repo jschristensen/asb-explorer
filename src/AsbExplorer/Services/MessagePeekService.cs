@@ -1,4 +1,3 @@
-using Azure.Core;
 using Azure.Messaging.ServiceBus;
 using AsbExplorer.Models;
 
@@ -6,54 +5,50 @@ namespace AsbExplorer.Services;
 
 public class MessagePeekService : IAsyncDisposable
 {
-    private readonly TokenCredential _credential;
+    private readonly ConnectionStore _connectionStore;
     private ServiceBusClient? _client;
-    private string? _currentNamespace;
+    private string? _currentConnectionName;
 
-    public MessagePeekService(TokenCredential credential)
+    public MessagePeekService(ConnectionStore connectionStore)
     {
-        _credential = credential;
+        _connectionStore = connectionStore;
     }
 
     public async Task<IReadOnlyList<PeekedMessage>> PeekMessagesAsync(
-        string namespaceFqdn,
+        string connectionName,
         string entityPath,
         string? topicName,
         bool isDeadLetter,
         int maxMessages = 50,
         long? fromSequenceNumber = null)
     {
-        var client = GetOrCreateClient(namespaceFqdn);
+        var client = GetOrCreateClient(connectionName);
+        if (client is null)
+        {
+            return [];
+        }
 
         ServiceBusReceiver receiver;
 
         if (topicName is not null)
         {
             // Topic subscription
-            var subName = isDeadLetter
-                ? entityPath.Replace("/$deadletterqueue", "")
-                : entityPath;
-
             var options = new ServiceBusReceiverOptions
             {
                 SubQueue = isDeadLetter ? SubQueue.DeadLetter : SubQueue.None
             };
 
-            receiver = client.CreateReceiver(topicName, subName, options);
+            receiver = client.CreateReceiver(topicName, entityPath, options);
         }
         else
         {
             // Queue
-            var queueName = isDeadLetter
-                ? entityPath.Replace("/$deadletterqueue", "")
-                : entityPath;
-
             var options = new ServiceBusReceiverOptions
             {
                 SubQueue = isDeadLetter ? SubQueue.DeadLetter : SubQueue.None
             };
 
-            receiver = client.CreateReceiver(queueName, options);
+            receiver = client.CreateReceiver(entityPath, options);
         }
 
         await using (receiver)
@@ -80,13 +75,20 @@ public class MessagePeekService : IAsyncDisposable
         }
     }
 
-    private ServiceBusClient GetOrCreateClient(string namespaceFqdn)
+    private ServiceBusClient? GetOrCreateClient(string connectionName)
     {
-        if (_client is null || _currentNamespace != namespaceFqdn)
+        if (_client is null || _currentConnectionName != connectionName)
         {
             _client?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            _client = new ServiceBusClient(namespaceFqdn, _credential);
-            _currentNamespace = namespaceFqdn;
+
+            var connection = _connectionStore.GetByName(connectionName);
+            if (connection is null)
+            {
+                return null;
+            }
+
+            _client = new ServiceBusClient(connection.ConnectionString);
+            _currentConnectionName = connectionName;
         }
 
         return _client;
