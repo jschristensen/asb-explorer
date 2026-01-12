@@ -2,11 +2,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Terminal.Gui;
 using AsbExplorer.Services;
 using AsbExplorer.Views;
+using AsbExplorer.Themes;
 
 // Set up DI
 var services = new ServiceCollection();
 services.AddSingleton<ConnectionStore>();
 services.AddSingleton<FavoritesStore>();
+services.AddSingleton<SettingsStore>();
 services.AddSingleton<MessageFormatter>();
 services.AddSingleton<ServiceBusConnectionService>();
 services.AddSingleton<MessagePeekService>();
@@ -17,8 +19,10 @@ var provider = services.BuildServiceProvider();
 // Load data BEFORE Application.Init() to avoid sync context deadlock
 var favoritesStore = provider.GetRequiredService<FavoritesStore>();
 var connectionStore = provider.GetRequiredService<ConnectionStore>();
+var settingsStore = provider.GetRequiredService<SettingsStore>();
 await favoritesStore.LoadAsync();
 await connectionStore.LoadAsync();
+await settingsStore.LoadAsync();
 
 Application.Init();
 
@@ -27,7 +31,15 @@ Application.QuitKey = Key.Q.WithCtrl;
 
 try
 {
+    // Apply saved theme
+    var theme = SolarizedTheme.GetScheme(settingsStore.Settings.Theme);
+    Colors.ColorSchemes["Base"] = theme;
+    Colors.ColorSchemes["Dialog"] = theme;
+    Colors.ColorSchemes["Menu"] = theme;
+    Colors.ColorSchemes["Error"] = theme;
+
     var mainWindow = provider.GetRequiredService<MainWindow>();
+    mainWindow.ColorScheme = theme;
     mainWindow.LoadInitialData();
     Application.Run(mainWindow);
 }
