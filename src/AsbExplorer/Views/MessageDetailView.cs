@@ -13,14 +13,12 @@ public class MessageDetailView : FrameView
     private readonly TableView _propertiesTable;
     private readonly JsonBodyView _bodyContainer;
     private readonly MessageFormatter _formatter;
-    private readonly SettingsStore _settingsStore;
     private readonly DataTable _propsDataTable;
 
     public MessageDetailView(MessageFormatter formatter, SettingsStore settingsStore)
     {
         Title = "Details";
         _formatter = formatter;
-        _settingsStore = settingsStore;
 
         _tabView = new TabView
         {
