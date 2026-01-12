@@ -21,8 +21,17 @@ try
     };
 
     window.Add(label);
-    Application.Top!.Add(window);
-    Application.Run();
+
+    window.KeyDown += (s, e) =>
+    {
+        if (e.KeyCode == (KeyCode.Q | KeyCode.CtrlMask))
+        {
+            Application.RequestStop();
+            e.Handled = true;
+        }
+    };
+
+    Application.Run(window);
 }
 finally
 {
