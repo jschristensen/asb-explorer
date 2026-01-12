@@ -20,6 +20,12 @@ public class FavoritesStore
         _filePath = Path.Combine(configDir, "favorites.json");
     }
 
+    protected FavoritesStore(string configDir)
+    {
+        Directory.CreateDirectory(configDir);
+        _filePath = Path.Combine(configDir, "favorites.json");
+    }
+
     public IReadOnlyList<Favorite> Favorites => _favorites.AsReadOnly();
 
     public async Task LoadAsync()
