@@ -40,6 +40,7 @@ try
 
     var mainWindow = provider.GetRequiredService<MainWindow>();
     mainWindow.ColorScheme = theme;
+    Application.Top.Add(mainWindow.StatusBar);
     mainWindow.LoadInitialData();
     Application.Run(mainWindow);
 }

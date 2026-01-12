@@ -1,6 +1,7 @@
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
+using AsbExplorer.Themes;
 
 namespace AsbExplorer.Views;
 
@@ -12,6 +13,9 @@ public class MainWindow : Window
     private readonly MessagePeekService _peekService;
     private readonly FavoritesStore _favoritesStore;
     private readonly ConnectionStore _connectionStore;
+    private readonly SettingsStore _settingsStore;
+    private readonly StatusBar _statusBar;
+    private readonly Shortcut _themeShortcut;
 
     private TreeNodeModel? _currentNode;
 
@@ -20,17 +24,19 @@ public class MainWindow : Window
         ConnectionStore connectionStore,
         MessagePeekService peekService,
         FavoritesStore favoritesStore,
+        SettingsStore settingsStore,
         MessageFormatter formatter)
     {
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
         _favoritesStore = favoritesStore;
         _connectionStore = connectionStore;
+        _settingsStore = settingsStore;
 
         X = 0;
         Y = 0;
         Width = Dim.Fill();
-        Height = Dim.Fill();
+        Height = Dim.Fill() - 1; // Leave room for status bar
 
         // Left panel - Tree (30% width)
         _treePanel = new TreePanel(connectionService, connectionStore, favoritesStore)
@@ -60,7 +66,7 @@ public class MainWindow : Window
         };
 
         // Message detail (bottom 60% of right panel)
-        _messageDetail = new MessageDetailView(formatter)
+        _messageDetail = new MessageDetailView(formatter, settingsStore)
         {
             X = 0,
             Y = Pos.Bottom(_messageList),
@@ -71,10 +77,41 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
+        // Status bar with theme toggle
+        _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
+        _statusBar = new StatusBar([_themeShortcut]);
+
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
         _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
         _messageList.MessageSelected += OnMessageSelected;
+    }
+
+    public StatusBar StatusBar => _statusBar;
+
+    private string GetThemeStatusText()
+    {
+        return _settingsStore.Settings.Theme == "dark" ? "F2 Dark" : "F2 Light";
+    }
+
+    private void ToggleTheme()
+    {
+        var newTheme = _settingsStore.Settings.Theme == "dark" ? "light" : "dark";
+        _ = Task.Run(async () =>
+        {
+            await _settingsStore.SetThemeAsync(newTheme);
+            Application.Invoke(() =>
+            {
+                var scheme = SolarizedTheme.GetScheme(newTheme);
+                Colors.ColorSchemes["Base"] = scheme;
+                Colors.ColorSchemes["Dialog"] = scheme;
+                Colors.ColorSchemes["Menu"] = scheme;
+                Colors.ColorSchemes["Error"] = scheme;
+                ColorScheme = scheme;
+                _themeShortcut.Title = GetThemeStatusText();
+                Application.Top?.SetNeedsDraw();
+            });
+        });
     }
 
     public void LoadInitialData()
