@@ -174,17 +174,20 @@ internal class JsonBodyView : View
     private FoldableJsonDocument? _currentDocument;
     private string _currentFormat = "";
     private string _currentContent = "";
+    private int _scrollOffset;
 
     public JsonBodyView(SettingsStore settingsStore)
     {
         _settingsStore = settingsStore;
         MouseClick += OnMouseClick;
+        MouseEvent += OnMouseEvent;
     }
 
     public void SetContent(string content, string format)
     {
         _currentFormat = format;
         _currentContent = content;
+        _scrollOffset = 0;
 
         if (format == "json")
         {
@@ -203,6 +206,7 @@ internal class JsonBodyView : View
         _currentDocument = null;
         _currentFormat = "";
         _currentContent = "";
+        _scrollOffset = 0;
         SetNeedsDraw();
     }
 
@@ -228,31 +232,20 @@ internal class JsonBodyView : View
         {
             // JSON with highlighting and folding
             var lines = _currentDocument.GetVisibleLines();
+            var contentHeight = Viewport.Height - 2; // Account for header + blank line
             var y = 2; // Start after header + blank line
 
-            foreach (var line in lines)
+            for (var i = _scrollOffset; i < lines.Count && y < Viewport.Height; i++)
             {
-                if (y >= Viewport.Height) break;
-
                 Move(0, y);
 
-                // Check if this is a collapsed line indicator
-                if (line.Contains(" ... "))
+                // Syntax highlight this line (works for both normal and collapsed lines)
+                var spans = JsonSyntaxHighlighter.Highlight(lines[i]);
+                foreach (var span in spans)
                 {
-                    // Draw collapsed indicator in punctuation color
-                    SetAttribute(new Attribute(SolarizedTheme.JsonColors[JsonTokenType.Punctuation], bgColor));
-                    AddStr(line);
-                }
-                else
-                {
-                    // Syntax highlight this line
-                    var spans = JsonSyntaxHighlighter.Highlight(line);
-                    foreach (var span in spans)
-                    {
-                        var color = SolarizedTheme.JsonColors[span.TokenType];
-                        SetAttribute(new Attribute(color, bgColor));
-                        AddStr(span.Text);
-                    }
+                    var color = SolarizedTheme.JsonColors[span.TokenType];
+                    SetAttribute(new Attribute(color, bgColor));
+                    AddStr(span.Text);
                 }
                 y++;
             }
@@ -265,11 +258,10 @@ internal class JsonBodyView : View
 
             var lines = _currentContent.Split('\n');
             var y = 2;
-            foreach (var line in lines)
+            for (var i = _scrollOffset; i < lines.Length && y < Viewport.Height; i++)
             {
-                if (y >= Viewport.Height) break;
                 Move(0, y);
-                AddStr(line.TrimEnd('\r'));
+                AddStr(lines[i].TrimEnd('\r'));
                 y++;
             }
         }
@@ -281,7 +273,8 @@ internal class JsonBodyView : View
     {
         if (_currentDocument == null || e.Position.Y < 2) return;
 
-        var lineIndex = e.Position.Y - 2; // Account for header
+        // Account for header and scroll offset
+        var lineIndex = e.Position.Y - 2 + _scrollOffset;
         var lines = _currentDocument.GetVisibleLines();
 
         if (lineIndex >= 0 && lineIndex < lines.Count)
@@ -289,5 +282,76 @@ internal class JsonBodyView : View
             _currentDocument.ToggleFoldAt(lineIndex);
             SetNeedsDraw();
         }
+    }
+
+    private void OnMouseEvent(object? sender, MouseEventArgs e)
+    {
+        if (e.Flags.HasFlag(MouseFlags.WheeledDown))
+        {
+            ScrollDown(3);
+            e.Handled = true;
+        }
+        else if (e.Flags.HasFlag(MouseFlags.WheeledUp))
+        {
+            ScrollUp(3);
+            e.Handled = true;
+        }
+    }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        switch (key.KeyCode)
+        {
+            case KeyCode.CursorDown:
+                ScrollDown(1);
+                return true;
+            case KeyCode.CursorUp:
+                ScrollUp(1);
+                return true;
+            case KeyCode.PageDown:
+                ScrollDown(Math.Max(1, Viewport.Height - 3));
+                return true;
+            case KeyCode.PageUp:
+                ScrollUp(Math.Max(1, Viewport.Height - 3));
+                return true;
+            case KeyCode.Home:
+                _scrollOffset = 0;
+                SetNeedsDraw();
+                return true;
+            case KeyCode.End:
+                ScrollToEnd();
+                return true;
+        }
+        return base.OnKeyDown(key);
+    }
+
+    private void ScrollDown(int lines)
+    {
+        var totalLines = GetTotalLines();
+        var maxOffset = Math.Max(0, totalLines - (Viewport.Height - 2));
+        _scrollOffset = Math.Min(_scrollOffset + lines, maxOffset);
+        SetNeedsDraw();
+    }
+
+    private void ScrollUp(int lines)
+    {
+        _scrollOffset = Math.Max(0, _scrollOffset - lines);
+        SetNeedsDraw();
+    }
+
+    private void ScrollToEnd()
+    {
+        var totalLines = GetTotalLines();
+        _scrollOffset = Math.Max(0, totalLines - (Viewport.Height - 2));
+        SetNeedsDraw();
+    }
+
+    private int GetTotalLines()
+    {
+        if (_currentDocument != null)
+        {
+            return _currentDocument.GetVisibleLines().Count;
+        }
+        return _currentContent.Split('\n').Length;
     }
 }

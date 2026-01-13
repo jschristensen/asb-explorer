@@ -153,4 +153,24 @@ public class FoldableJsonDocumentTests
 
         Assert.Empty(regions);
     }
+
+    [Fact]
+    public void ToggleFoldAt_CollapseNested_PreservesIndentation()
+    {
+        var json = """
+            {
+              "outer": {
+                "inner": "value"
+              }
+            }
+            """;
+        var doc = new FoldableJsonDocument(json);
+
+        // Collapse inner object (line 1 contains "outer": {)
+        doc.ToggleFoldAt(1);
+        var lines = doc.GetVisibleLines();
+
+        // Collapsed line should preserve leading indentation
+        Assert.StartsWith("  ", lines[1]);
+    }
 }

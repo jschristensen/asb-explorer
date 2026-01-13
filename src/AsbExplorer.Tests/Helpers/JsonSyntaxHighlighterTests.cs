@@ -92,4 +92,22 @@ public class JsonSyntaxHighlighterTests
 
         Assert.Equal(json, reconstructed);
     }
+
+    [Fact]
+    public void Highlight_CollapsedLine_HighlightsKeyAndBrackets()
+    {
+        // Collapsed line format used by FoldableJsonDocument
+        var line = """  "outer":{ ... }""";
+
+        var spans = JsonSyntaxHighlighter.Highlight(line);
+
+        // Key should be highlighted as Key
+        Assert.Contains(spans, s => s.Text == "\"outer\"" && s.TokenType == JsonTokenType.Key);
+        // Brackets should be highlighted as Punctuation
+        Assert.Contains(spans, s => s.Text == "{" && s.TokenType == JsonTokenType.Punctuation);
+        Assert.Contains(spans, s => s.Text == "}" && s.TokenType == JsonTokenType.Punctuation);
+        // Text should reconstruct correctly
+        var reconstructed = string.Concat(spans.Select(s => s.Text));
+        Assert.Equal(line, reconstructed);
+    }
 }

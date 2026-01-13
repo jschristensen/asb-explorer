@@ -43,9 +43,10 @@ public class FoldableJsonDocument
                     collapsedLine = collapsedLine[..^1].TrimEnd();
                 }
 
-                // Find the leading whitespace and bracket
-                var leadingContent = _lines[i].TrimEnd();
-                result.Add($"{leadingContent.TrimEnd(region.BracketType).TrimEnd()}{region.BracketType} ... {closeBracket}".Trim());
+                // Preserve leading whitespace for indentation
+                var lineContent = _lines[i].TrimEnd();
+                var contentWithoutBracket = lineContent.TrimEnd(region.BracketType).TrimEnd();
+                result.Add($"{contentWithoutBracket}{region.BracketType} ... {closeBracket}");
 
                 skipUntilLine = region.EndLine;
             }
