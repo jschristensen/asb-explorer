@@ -29,7 +29,10 @@ case "$OS" in
 esac
 
 ASSET="asb-explorer-${OS}-${ARCH}.tar.gz"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+
+# Create install directory if needed
+mkdir -p "$INSTALL_DIR"
 
 # Resolve latest version if needed
 if [ "$VERSION" = "latest" ]; then
@@ -43,4 +46,16 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
 curl -fsSL "$DOWNLOAD_URL" | tar xz -C "$INSTALL_DIR"
 
 echo "Installed asb-explorer to $INSTALL_DIR/asb-explorer"
-echo "Run 'asb-explorer' to start."
+
+# Check if install dir is in PATH
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+  echo ""
+  echo "Note: $INSTALL_DIR is not in your PATH."
+  echo "Add it by running:"
+  echo ""
+  echo "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc"
+  echo ""
+  echo "Then restart your terminal or run: source ~/.zshrc"
+else
+  echo "Run 'asb-explorer' to start."
+fi
