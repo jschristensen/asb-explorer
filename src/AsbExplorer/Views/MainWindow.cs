@@ -267,4 +267,10 @@ public class MainWindow : Window
             MessageBox.ErrorQuery(title, ex.Message, "OK");
         });
     }
+
+    private void ShowShortcutsDialog()
+    {
+        var dialog = new ShortcutsDialog();
+        Application.Run(dialog);
+    }
 }
