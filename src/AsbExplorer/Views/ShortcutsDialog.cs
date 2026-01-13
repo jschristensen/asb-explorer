@@ -46,16 +46,14 @@ public class ShortcutsDialog : Dialog
         return """
             Global
             ─────────────────────────────────
-            Alt+E         Focus Explorer
-            Alt+M         Focus Messages
-            Alt+D         Focus Details
+            Ctrl+Shift+E  Focus Explorer
+            Ctrl+Shift+M  Focus Messages
+            Ctrl+Shift+D  Focus Details
+            R             Refresh counts
+            Shift+R       Refresh all counts
             ?             Show this help
             F2            Toggle theme
             Ctrl+Q        Quit
-
-            Explorer
-            ─────────────────────────────────
-            R             Refresh message counts
 
             Details (JSON Body)
             ─────────────────────────────────

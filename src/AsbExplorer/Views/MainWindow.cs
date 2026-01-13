@@ -277,21 +277,24 @@ public class MainWindow : Window
 
     protected override bool OnKeyDown(Key key)
     {
-        if (key == Key.E.WithAlt)
+        // Panel navigation: Ctrl+Shift+E/M/D
+        if (key == Key.E.WithCtrl.WithShift)
         {
             _treePanel.SetFocus();
             return true;
         }
-        if (key == Key.M.WithAlt)
+        if (key == Key.M.WithCtrl.WithShift)
         {
             _messageList.SetFocus();
             return true;
         }
-        if (key == Key.D.WithAlt)
+        if (key == Key.D.WithCtrl.WithShift)
         {
             _messageDetail.SetFocus();
             return true;
         }
+
+        // Help
         if (key.AsRune == new Rune('?'))
         {
             ShowShortcutsDialog();
