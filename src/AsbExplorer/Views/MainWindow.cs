@@ -17,6 +17,7 @@ public class MainWindow : Window
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
     private readonly Shortcut _refreshShortcut;
+    private readonly Shortcut _refreshAllShortcut;
     private readonly Label _refreshingLabel;
 
     private TreeNodeModel? _currentNode;
@@ -79,16 +80,17 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
-        // Status bar with theme toggle, refresh shortcut, and refresh indicator
+        // Status bar with theme toggle, refresh shortcuts, and refresh indicator
         _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
-        _refreshShortcut = new Shortcut(Key.R, "r Refresh", () => _treePanel.RefreshSelectedNodeCounts());
+        _refreshShortcut = new Shortcut(Key.R, "Refresh", () => _treePanel.RefreshSelectedNodeCounts());
+        _refreshAllShortcut = new Shortcut(Key.R.WithShift, "Refresh All", () => _treePanel.RefreshAllCounts());
         _refreshingLabel = new Label
         {
             Text = "Refreshing...",
             Visible = false,
             X = Pos.AnchorEnd(15)
         };
-        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut]);
+        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut]);
         _statusBar.Add(_refreshingLabel);
 
         // Wire up events
@@ -103,7 +105,7 @@ public class MainWindow : Window
 
     private string GetThemeStatusText()
     {
-        return _settingsStore.Settings.Theme == "dark" ? "F2 Dark" : "F2 Light";
+        return _settingsStore.Settings.Theme == "dark" ? "Dark" : "Light";
     }
 
     private void ToggleTheme()

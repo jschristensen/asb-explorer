@@ -55,7 +55,8 @@ public class TreePanel : FrameView
             TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(
                 GetChildren,
                 node => node.CanHaveChildren),
-            AspectGetter = node => node.EffectiveDisplayName
+            AspectGetter = node => node.EffectiveDisplayName,
+            AllowLetterBasedNavigation = false
         };
 
         _treeView.SelectionChanged += (s, e) =>
@@ -111,6 +112,50 @@ public class TreePanel : FrameView
         {
             _ = RefreshMessageCountsAsync(selected);
         }
+    }
+
+    public void RefreshAllCounts()
+    {
+        _ = RefreshAllCountsAsync();
+    }
+
+    private async Task RefreshAllCountsAsync()
+    {
+        Application.Invoke(() => RefreshStarted?.Invoke());
+        try
+        {
+            // Find all namespace nodes and refresh their children
+            foreach (var kvp in _childrenCache)
+            {
+                var children = kvp.Value;
+                if (children.Count > 0 && children[0].ConnectionName is not null)
+                {
+                    // Find parent node to pass for refresh
+                    var parentId = kvp.Key;
+                    var parentNode = FindNodeById(parentId);
+                    if (parentNode is not null &&
+                        (parentNode.NodeType == TreeNodeType.Namespace || parentNode.NodeType == TreeNodeType.Topic))
+                    {
+                        await LoadMessageCountsAsync(children, parentNode.ConnectionName!, parentNode);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            Application.Invoke(() => RefreshCompleted?.Invoke());
+        }
+    }
+
+    private TreeNodeModel? FindNodeById(string id)
+    {
+        // Check root nodes and cached children
+        foreach (var kvp in _childrenCache)
+        {
+            var found = kvp.Value.FirstOrDefault(n => n.Id == id);
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     private IEnumerable<TreeNodeModel> GetChildren(TreeNodeModel node)
@@ -275,6 +320,24 @@ public class TreePanel : FrameView
 
     private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
+        // First, mark all countable nodes as loading and show "(...)"
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            var node = nodes[i];
+            if (node.NodeType is TreeNodeType.Queue or TreeNodeType.QueueDeadLetter
+                or TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter)
+            {
+                nodes[i] = node with { IsLoadingCount = true, MessageCount = null };
+            }
+        }
+
+        Application.Invoke(() =>
+        {
+            _treeView.RefreshObject(parentNode);
+            _treeView.SetNeedsDraw();
+        });
+
+        // Now fetch actual counts
         var tasks = nodes.Select(async node =>
         {
             try
@@ -290,20 +353,20 @@ public class TreePanel : FrameView
 
                 if (count.HasValue)
                 {
-                    return node with { MessageCount = count.Value };
+                    return node with { MessageCount = count.Value, IsLoadingCount = false };
                 }
-                return node;
+                return node with { IsLoadingCount = false };
             }
             catch
             {
-                return node with { MessageCount = -1 };
+                return node with { MessageCount = -1, IsLoadingCount = false };
             }
         });
 
         var updatedNodes = await Task.WhenAll(tasks);
 
         // Update cache with new nodes
-        foreach (var updated in updatedNodes.Where(n => n.MessageCount.HasValue))
+        foreach (var updated in updatedNodes.Where(n => n.MessageCount.HasValue || !n.IsLoadingCount))
         {
             var index = nodes.FindIndex(n => n.Id == updated.Id);
             if (index >= 0)
