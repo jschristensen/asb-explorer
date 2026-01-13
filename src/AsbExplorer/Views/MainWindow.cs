@@ -36,7 +36,7 @@ public class MainWindow : Window
         X = 0;
         Y = 0;
         Width = Dim.Fill();
-        Height = Dim.Fill() - 1; // Leave room for status bar
+        Height = Dim.Fill()! - 1; // Leave room for status bar
 
         // Left panel - Tree (30% width)
         _treePanel = new TreePanel(connectionService, connectionStore, favoritesStore)
