@@ -179,12 +179,12 @@ public class TreePanel : FrameView
             // Start loading message counts in background
             if (node.NodeType == TreeNodeType.Namespace && children.Count > 0)
             {
-                _ = LoadMessageCountsAsync(children, node.ConnectionName!);
+                _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
 
             if (node.NodeType == TreeNodeType.Topic && children.Count > 0)
             {
-                _ = LoadMessageCountsAsync(children, node.ConnectionName!);
+                _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
 
             // Refresh the tree on UI thread
@@ -275,7 +275,7 @@ public class TreePanel : FrameView
         return results;
     }
 
-    private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName)
+    private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
         var tasks = nodes.Select(async node =>
         {
@@ -316,6 +316,7 @@ public class TreePanel : FrameView
 
         Application.Invoke(() =>
         {
+            _treeView.RefreshObject(parentNode);
             _treeView.SetNeedsDraw();
         });
     }
@@ -328,7 +329,7 @@ public class TreePanel : FrameView
                 // Refresh all children of this namespace
                 if (_childrenCache.TryGetValue(node.Id, out var namespaceChildren))
                 {
-                    await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!);
+                    await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!, node);
                 }
                 break;
 
@@ -336,7 +337,7 @@ public class TreePanel : FrameView
                 // Refresh all subscriptions under this topic
                 if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
                 {
-                    await LoadMessageCountsAsync(topicChildren, node.ConnectionName!);
+                    await LoadMessageCountsAsync(topicChildren, node.ConnectionName!, node);
                 }
                 break;
 
