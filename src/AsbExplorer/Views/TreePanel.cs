@@ -53,7 +53,7 @@ public class TreePanel : FrameView
             TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(
                 GetChildren,
                 node => node.CanHaveChildren),
-            AspectGetter = node => node.DisplayName
+            AspectGetter = node => node.EffectiveDisplayName
         };
 
         _treeView.SelectionChanged += (s, e) =>
