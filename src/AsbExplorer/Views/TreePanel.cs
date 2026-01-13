@@ -172,13 +172,27 @@ public class TreePanel : FrameView
         }
         catch (Exception ex)
         {
-            // Log to stderr
-            Console.Error.WriteLine($"[ERROR] Failed to load {node.DisplayName}: {ex.Message}");
+            // Log full error to stderr for debugging
+            Console.Error.WriteLine($"[ERROR] Failed to load {node.DisplayName}:");
+            Console.Error.WriteLine($"  Type: {ex.GetType().Name}");
+            Console.Error.WriteLine($"  Message: {ex.Message}");
+            if (ex.InnerException != null)
+                Console.Error.WriteLine($"  Inner: {ex.InnerException.Message}");
+
+            // Provide user-friendly message for common errors
+            var displayMessage = ex.Message switch
+            {
+                var m when m.Contains("InvalidSignature") =>
+                    "Auth failed - check connection string or system clock",
+                var m when m.Contains("timeout", StringComparison.OrdinalIgnoreCase) =>
+                    "Connection timed out - check network",
+                _ => ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message
+            };
 
             // Show error node in tree
             var errorNode = new TreeNodeModel(
                 Id: $"{node.Id}:error",
-                DisplayName: $"Error: {ex.Message}",
+                DisplayName: $"Error: {displayMessage}",
                 NodeType: TreeNodeType.Queue, // Leaf node
                 ConnectionName: node.ConnectionName
             );
