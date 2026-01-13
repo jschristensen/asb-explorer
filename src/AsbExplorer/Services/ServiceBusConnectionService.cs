@@ -51,6 +51,26 @@ public class ServiceBusConnectionService
         }
     }
 
+    public async Task<long> GetQueueMessageCountAsync(string connectionName, string queueName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetQueueRuntimePropertiesAsync(queueName);
+        return props.Value.ActiveMessageCount;
+    }
+
+    public async Task<long> GetSubscriptionMessageCountAsync(string connectionName, string topicName, string subscriptionName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetSubscriptionRuntimePropertiesAsync(topicName, subscriptionName);
+        return props.Value.ActiveMessageCount;
+    }
+
     public async IAsyncEnumerable<TreeNodeModel> GetTopicsAsync(string connectionName)
     {
         var connection = _connectionStore.GetByName(connectionName);
