@@ -66,18 +66,19 @@ public class TreePanel : FrameView
             }
         };
 
-        _treeView.KeyDown += (s, e) =>
+        // Add refresh command bound to 'r' key on the panel
+        AddCommand(Command.Refresh, () =>
         {
-            if (e.KeyCode == (KeyCode)'r' || e.KeyCode == (KeyCode)'R')
+            var selected = _treeView.SelectedObject;
+            if (selected is not null)
             {
-                var selected = _treeView.SelectedObject;
-                if (selected is not null)
-                {
-                    _ = RefreshMessageCountsAsync(selected);
-                }
-                e.Handled = true;
+                _ = RefreshMessageCountsAsync(selected);
+                return true;
             }
-        };
+            return false;
+        });
+        KeyBindings.Add(Key.R, Command.Refresh);
+        KeyBindings.Add(Key.R.WithShift, Command.Refresh);
 
         Add(addButton, _treeView);
     }
