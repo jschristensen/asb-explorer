@@ -56,7 +56,7 @@ public class ConnectionStore
         try
         {
             var json = await File.ReadAllTextAsync(_filePath).ConfigureAwait(false);
-            _connections = JsonSerializer.Deserialize<List<ServiceBusConnection>>(json) ?? [];
+            _connections = JsonSerializer.Deserialize(json, AppJsonContext.Default.ListServiceBusConnection) ?? [];
         }
         catch
         {
@@ -85,11 +85,7 @@ public class ConnectionStore
 
     private async Task SaveAsync()
     {
-        var json = JsonSerializer.Serialize(_connections, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-
+        var json = JsonSerializer.Serialize(_connections, AppJsonContext.Default.ListServiceBusConnection);
         await File.WriteAllTextAsync(_filePath, json).ConfigureAwait(false);
     }
 }

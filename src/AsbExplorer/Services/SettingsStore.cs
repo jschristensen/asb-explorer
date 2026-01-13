@@ -39,7 +39,7 @@ public class SettingsStore
         try
         {
             var json = await File.ReadAllTextAsync(_filePath).ConfigureAwait(false);
-            Settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            Settings = JsonSerializer.Deserialize(json, AppJsonContext.Default.AppSettings) ?? new AppSettings();
         }
         catch
         {
@@ -55,10 +55,7 @@ public class SettingsStore
 
     private async Task SaveAsync()
     {
-        var json = JsonSerializer.Serialize(Settings, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(Settings, AppJsonContext.Default.AppSettings);
         await File.WriteAllTextAsync(_filePath, json).ConfigureAwait(false);
     }
 }

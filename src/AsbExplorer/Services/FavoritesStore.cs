@@ -39,7 +39,7 @@ public class FavoritesStore
         try
         {
             var json = await File.ReadAllTextAsync(_filePath).ConfigureAwait(false);
-            _favorites = JsonSerializer.Deserialize<List<Favorite>>(json) ?? [];
+            _favorites = JsonSerializer.Deserialize(json, AppJsonContext.Default.ListFavorite) ?? [];
         }
         catch
         {
@@ -81,11 +81,7 @@ public class FavoritesStore
 
     private async Task SaveAsync()
     {
-        var json = JsonSerializer.Serialize(_favorites, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-
+        var json = JsonSerializer.Serialize(_favorites, AppJsonContext.Default.ListFavorite);
         await File.WriteAllTextAsync(_filePath, json).ConfigureAwait(false);
     }
 }
