@@ -81,17 +81,18 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
-        // Status bar with theme toggle, refresh shortcuts, and refresh indicator
+        // Status bar with theme toggle, refresh shortcuts, help, and refresh indicator
         _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
         _refreshShortcut = new Shortcut(Key.R, "Refresh", () => _treePanel.RefreshSelectedNodeCounts());
         _refreshAllShortcut = new Shortcut(Key.R.WithShift, "Refresh All", () => _treePanel.RefreshAllCounts());
+        var shortcutsShortcut = new Shortcut(Key.Empty, "? Help", ShowShortcutsDialog);
         _refreshingLabel = new Label
         {
             Text = "Refreshing...",
             Visible = false,
             X = Pos.AnchorEnd(15)
         };
-        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut]);
+        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut, shortcutsShortcut]);
         _statusBar.Add(_refreshingLabel);
 
         // Wire up events
