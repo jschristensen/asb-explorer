@@ -41,4 +41,17 @@ public class TreeNodeModelTests
 
         Assert.Equal("my-queue (42)", node.EffectiveDisplayName);
     }
+
+    [Fact]
+    public void EffectiveDisplayName_WhenError_ReturnsNameWithQuestionMark()
+    {
+        var node = new TreeNodeModel(
+            Id: "test",
+            DisplayName: "my-queue",
+            NodeType: TreeNodeType.Queue,
+            MessageCount: -1
+        );
+
+        Assert.Equal("my-queue (?)", node.EffectiveDisplayName);
+    }
 }
