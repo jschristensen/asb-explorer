@@ -1,3 +1,4 @@
+using System.Text;
 using Terminal.Gui;
 
 namespace AsbExplorer.Views;
@@ -32,7 +33,7 @@ public class ShortcutsDialog : Dialog
 
     protected override bool OnKeyDown(Key key)
     {
-        if (key == (Key)'?' || key == Key.Esc)
+        if (key.AsRune == new Rune('?') || key == Key.Esc)
         {
             RequestStop();
             return true;

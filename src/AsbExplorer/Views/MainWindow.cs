@@ -1,3 +1,4 @@
+using System.Text;
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
@@ -291,7 +292,7 @@ public class MainWindow : Window
             _messageDetail.SetFocus();
             return true;
         }
-        if (key == (Key)'?')
+        if (key.AsRune == new Rune('?'))
         {
             ShowShortcutsDialog();
             return true;
