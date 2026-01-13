@@ -206,7 +206,7 @@ Create `scripts/install.sh`:
 #!/bin/bash
 set -e
 
-REPO="<owner>/asb-explorer"
+REPO="jschristensen/asb-explorer"
 VERSION="${1:-latest}"
 
 # Detect OS and architecture
@@ -292,7 +292,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "<owner>/asb-explorer"
+$Repo = "jschristensen/asb-explorer"
 $Asset = "asb-explorer-win-x64.zip"
 $InstallDir = "$env:LOCALAPPDATA\Programs\asb-explorer"
 
@@ -366,24 +366,24 @@ A terminal UI for exploring Azure Service Bus queues, topics, and subscriptions.
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.sh | bash
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.sh | bash -s v0.1.0
+curl -fsSL https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.sh | bash -s v0.1.0
 ```
 
 ### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.ps1 | iex
 ```
 
 ### Manual Download
 
-Download from [GitHub Releases](https://github.com/<owner>/asb-explorer/releases):
+Download from [GitHub Releases](https://github.com/jschristensen/asb-explorer/releases):
 
 | Platform | File |
 |----------|------|

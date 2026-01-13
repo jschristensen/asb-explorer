@@ -81,7 +81,7 @@ ASSET="asb-explorer-${OS}-${ARCH}.tar.gz"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Download and install
-curl -sL "https://github.com/<owner>/asb-explorer/releases/${VERSION}/download/${ASSET}" | \
+curl -sL "https://github.com/jschristensen/asb-explorer/releases/${VERSION}/download/${ASSET}" | \
   tar xz -C "$INSTALL_DIR"
 
 echo "Installed asb-explorer to $INSTALL_DIR"
@@ -90,7 +90,7 @@ echo "Installed asb-explorer to $INSTALL_DIR"
 **Usage:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.sh | bash
 ```
 
 ### Windows (`scripts/install.ps1`)
@@ -101,7 +101,7 @@ $Asset = "asb-explorer-win-x64.zip"
 $InstallDir = "$env:LOCALAPPDATA\Programs\asb-explorer"
 
 # Download and extract
-Invoke-WebRequest -Uri "https://github.com/<owner>/asb-explorer/releases/$Version/download/$Asset" -OutFile "$env:TEMP\$Asset"
+Invoke-WebRequest -Uri "https://github.com/jschristensen/asb-explorer/releases/$Version/download/$Asset" -OutFile "$env:TEMP\$Asset"
 Expand-Archive -Path "$env:TEMP\$Asset" -DestinationPath $InstallDir -Force
 
 # Add to PATH for current user
@@ -116,7 +116,7 @@ Write-Host "Installed asb-explorer to $InstallDir"
 **Usage:**
 
 ```powershell
-irm https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.ps1 | iex
 ```
 
 ## Project Structure
@@ -139,15 +139,15 @@ New files to add:
 
 ### macOS / Linux
 
-curl -fsSL https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.sh | bash
 
 Or with a specific version:
 
-curl -fsSL https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.sh | bash -s v0.1.0
+curl -fsSL https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.sh | bash -s v0.1.0
 
 ### Windows
 
-irm https://raw.githubusercontent.com/<owner>/asb-explorer/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/jschristensen/asb-explorer/main/scripts/install.ps1 | iex
 
 ### Manual Download
 
