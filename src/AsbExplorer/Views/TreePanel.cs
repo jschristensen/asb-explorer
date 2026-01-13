@@ -64,6 +64,19 @@ public class TreePanel : FrameView
             }
         };
 
+        _treeView.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.R)
+            {
+                var selected = _treeView.SelectedObject;
+                if (selected is not null)
+                {
+                    _ = RefreshMessageCountsAsync(selected);
+                }
+                e.Handled = true;
+            }
+        };
+
         Add(addButton, _treeView);
     }
 
@@ -305,5 +318,74 @@ public class TreePanel : FrameView
         {
             _treeView.SetNeedsDraw();
         });
+    }
+
+    private async Task RefreshMessageCountsAsync(TreeNodeModel node)
+    {
+        switch (node.NodeType)
+        {
+            case TreeNodeType.Namespace:
+                // Refresh all children of this namespace
+                if (_childrenCache.TryGetValue(node.Id, out var namespaceChildren))
+                {
+                    await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!);
+                }
+                break;
+
+            case TreeNodeType.Topic:
+                // Refresh all subscriptions under this topic
+                if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
+                {
+                    await LoadMessageCountsAsync(topicChildren, node.ConnectionName!);
+                }
+                break;
+
+            case TreeNodeType.Queue:
+            case TreeNodeType.QueueDeadLetter:
+            case TreeNodeType.TopicSubscription:
+            case TreeNodeType.TopicSubscriptionDeadLetter:
+                // Refresh single node - find it in parent cache and update
+                await RefreshSingleNodeCountAsync(node);
+                break;
+        }
+    }
+
+    private async Task RefreshSingleNodeCountAsync(TreeNodeModel node)
+    {
+        try
+        {
+            var count = node.NodeType switch
+            {
+                TreeNodeType.Queue => await _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!),
+                TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!),
+                TreeNodeType.TopicSubscription => await _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
+                TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
+                _ => (long?)null
+            };
+
+            if (count.HasValue)
+            {
+                UpdateNodeInCache(node, count.Value);
+            }
+        }
+        catch
+        {
+            UpdateNodeInCache(node, -1);
+        }
+    }
+
+    private void UpdateNodeInCache(TreeNodeModel node, long count)
+    {
+        // Find parent cache entry and update the node
+        foreach (var kvp in _childrenCache)
+        {
+            var index = kvp.Value.FindIndex(n => n.Id == node.Id);
+            if (index >= 0)
+            {
+                kvp.Value[index] = node with { MessageCount = count };
+                Application.Invoke(() => _treeView.SetNeedsDraw());
+                return;
+            }
+        }
     }
 }
