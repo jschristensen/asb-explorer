@@ -57,7 +57,9 @@ public class MainWindow : Window
             X = Pos.Right(_treePanel),
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill()
+            Height = Dim.Fill(),
+            CanFocus = true,
+            TabStop = TabBehavior.TabGroup
         };
 
         // Message list (top 40% of right panel)

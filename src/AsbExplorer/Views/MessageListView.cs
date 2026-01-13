@@ -15,6 +15,8 @@ public class MessageListView : FrameView
     public MessageListView()
     {
         Title = "Messages";
+        CanFocus = true;
+        TabStop = TabBehavior.TabGroup;
 
         _dataTable = new DataTable();
         _dataTable.Columns.Add("MessageId", typeof(string));
@@ -30,7 +32,10 @@ public class MessageListView : FrameView
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             Table = new DataTableSource(_dataTable),
-            FullRowSelect = true
+            FullRowSelect = true,
+            MultiSelect = false,
+            CanFocus = true,
+            TabStop = TabBehavior.TabStop
         };
 
         _tableView.CellActivated += (s, e) =>

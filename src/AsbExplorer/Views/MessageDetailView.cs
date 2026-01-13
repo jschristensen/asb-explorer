@@ -18,6 +18,8 @@ public class MessageDetailView : FrameView
     public MessageDetailView(MessageFormatter formatter, SettingsStore settingsStore)
     {
         Title = "Details";
+        CanFocus = true;
+        TabStop = TabBehavior.TabGroup;
         _formatter = formatter;
 
         _tabView = new TabView
@@ -25,7 +27,9 @@ public class MessageDetailView : FrameView
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill()
+            Height = Dim.Fill(),
+            CanFocus = true,
+            TabStop = TabBehavior.TabStop
         };
 
         // Properties tab

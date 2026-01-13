@@ -29,6 +29,8 @@ public class TreePanel : FrameView
         FavoritesStore favoritesStore)
     {
         Title = "Explorer";
+        CanFocus = true;
+        TabStop = TabBehavior.TabGroup;
         _connectionService = connectionService;
         _connectionStore = connectionStore;
         _favoritesStore = favoritesStore;
@@ -56,7 +58,9 @@ public class TreePanel : FrameView
                 GetChildren,
                 node => node.CanHaveChildren),
             AspectGetter = node => node.EffectiveDisplayName,
-            AllowLetterBasedNavigation = false
+            AllowLetterBasedNavigation = false,
+            CanFocus = true,
+            TabStop = TabBehavior.TabStop
         };
 
         _treeView.SelectionChanged += (s, e) =>
