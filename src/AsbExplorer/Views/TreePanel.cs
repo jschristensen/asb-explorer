@@ -68,6 +68,15 @@ public class TreePanel : FrameView
         };
 
         Add(addButton, _treeView);
+
+        // Ensure TreeView gets focus when this panel is focused
+        HasFocusChanged += (s, e) =>
+        {
+            if (e.NewValue && !_treeView.HasFocus)
+            {
+                _treeView.SetFocus();
+            }
+        };
     }
 
     public void LoadRootNodes()
@@ -94,6 +103,13 @@ public class TreePanel : FrameView
         foreach (var root in roots)
         {
             _treeView.AddObject(root);
+        }
+
+        // Expand Connections node by default
+        var connectionsNode = roots.FirstOrDefault(r => r.NodeType == TreeNodeType.ConnectionsRoot);
+        if (connectionsNode is not null)
+        {
+            _treeView.Expand(connectionsNode);
         }
 
         _treeView.SetNeedsDraw();

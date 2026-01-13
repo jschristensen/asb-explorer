@@ -67,6 +67,15 @@ public class MessageDetailView : FrameView
         _tabView.AddTab(bodyTab, false);
 
         Add(_tabView);
+
+        // Ensure TabView gets focus when this view is focused
+        HasFocusChanged += (s, e) =>
+        {
+            if (e.NewValue && !_tabView.HasFocus)
+            {
+                _tabView.SetFocus();
+            }
+        };
     }
 
     public void SetMessage(PeekedMessage message)

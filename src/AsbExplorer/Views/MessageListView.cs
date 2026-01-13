@@ -50,6 +50,15 @@ public class MessageListView : FrameView
         };
 
         Add(_tableView);
+
+        // Ensure TableView gets focus when this view is focused
+        HasFocusChanged += (s, e) =>
+        {
+            if (e.NewValue && !_tableView.HasFocus)
+            {
+                _tableView.SetFocus();
+            }
+        };
     }
 
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
