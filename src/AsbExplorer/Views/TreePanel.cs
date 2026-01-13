@@ -170,6 +170,26 @@ public class TreePanel : FrameView
                 _treeView.SetNeedsDraw();
             });
         }
+        catch (Exception ex)
+        {
+            // Log to stderr
+            Console.Error.WriteLine($"[ERROR] Failed to load {node.DisplayName}: {ex.Message}");
+
+            // Show error node in tree
+            var errorNode = new TreeNodeModel(
+                Id: $"{node.Id}:error",
+                DisplayName: $"Error: {ex.Message}",
+                NodeType: TreeNodeType.Queue, // Leaf node
+                ConnectionName: node.ConnectionName
+            );
+            _childrenCache[node.Id] = [errorNode];
+
+            Application.Invoke(() =>
+            {
+                _treeView.RefreshObject(node);
+                _treeView.SetNeedsDraw();
+            });
+        }
         finally
         {
             _loadingNodes.TryRemove(node.Id, out _);

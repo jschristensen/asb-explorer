@@ -99,18 +99,25 @@ public class MainWindow : Window
         var newTheme = _settingsStore.Settings.Theme == "dark" ? "light" : "dark";
         _ = Task.Run(async () =>
         {
-            await _settingsStore.SetThemeAsync(newTheme);
-            Application.Invoke(() =>
+            try
             {
-                var scheme = SolarizedTheme.GetScheme(newTheme);
-                Colors.ColorSchemes["Base"] = scheme;
-                Colors.ColorSchemes["Dialog"] = scheme;
-                Colors.ColorSchemes["Menu"] = scheme;
-                Colors.ColorSchemes["Error"] = scheme;
-                ColorScheme = scheme;
-                _themeShortcut.Title = GetThemeStatusText();
-                Application.Top?.SetNeedsDraw();
-            });
+                await _settingsStore.SetThemeAsync(newTheme);
+                Application.Invoke(() =>
+                {
+                    var scheme = SolarizedTheme.GetScheme(newTheme);
+                    Colors.ColorSchemes["Base"] = scheme;
+                    Colors.ColorSchemes["Dialog"] = scheme;
+                    Colors.ColorSchemes["Menu"] = scheme;
+                    Colors.ColorSchemes["Error"] = scheme;
+                    ColorScheme = scheme;
+                    _themeShortcut.Title = GetThemeStatusText();
+                    Application.Top?.SetNeedsDraw();
+                });
+            }
+            catch (Exception ex)
+            {
+                ShowError("Failed to save theme", ex);
+            }
         });
     }
 
@@ -130,8 +137,15 @@ public class MainWindow : Window
             var connection = new ServiceBusConnection(dialog.ConnectionName, dialog.ConnectionString);
             _ = Task.Run(async () =>
             {
-                await _connectionStore.AddAsync(connection);
-                Application.Invoke(() => _treePanel.RefreshConnections());
+                try
+                {
+                    await _connectionStore.AddAsync(connection);
+                    Application.Invoke(() => _treePanel.RefreshConnections());
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Failed to save connection", ex);
+                }
             });
         }
     }
@@ -209,18 +223,34 @@ public class MainWindow : Window
             _currentNode.ParentEntityPath
         );
 
-        if (_favoritesStore.IsFavorite(
-            _currentNode.ConnectionName,
-            _currentNode.EntityPath!,
-            _currentNode.ParentEntityPath))
+        try
         {
-            await _favoritesStore.RemoveAsync(favorite);
-            MessageBox.Query("Favorites", "Removed from favorites", "OK");
+            if (_favoritesStore.IsFavorite(
+                _currentNode.ConnectionName,
+                _currentNode.EntityPath!,
+                _currentNode.ParentEntityPath))
+            {
+                await _favoritesStore.RemoveAsync(favorite);
+                MessageBox.Query("Favorites", "Removed from favorites", "OK");
+            }
+            else
+            {
+                await _favoritesStore.AddAsync(favorite);
+                MessageBox.Query("Favorites", "Added to favorites", "OK");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            await _favoritesStore.AddAsync(favorite);
-            MessageBox.Query("Favorites", "Added to favorites", "OK");
+            ShowError("Failed to update favorites", ex);
         }
+    }
+
+    private static void ShowError(string title, Exception ex)
+    {
+        Console.Error.WriteLine($"[ERROR] {title}: {ex.Message}");
+        Application.Invoke(() =>
+        {
+            MessageBox.ErrorQuery(title, ex.Message, "OK");
+        });
     }
 }
