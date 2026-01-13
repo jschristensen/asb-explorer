@@ -66,20 +66,6 @@ public class TreePanel : FrameView
             }
         };
 
-        // Add refresh command bound to 'r' key on the panel
-        AddCommand(Command.Refresh, () =>
-        {
-            var selected = _treeView.SelectedObject;
-            if (selected is not null)
-            {
-                _ = RefreshMessageCountsAsync(selected);
-                return true;
-            }
-            return false;
-        });
-        KeyBindings.Add(Key.R, Command.Refresh);
-        KeyBindings.Add(Key.R.WithShift, Command.Refresh);
-
         Add(addButton, _treeView);
     }
 
@@ -116,6 +102,15 @@ public class TreePanel : FrameView
     {
         _childrenCache.TryRemove("connections", out _);
         LoadRootNodes();
+    }
+
+    public void RefreshSelectedNodeCounts()
+    {
+        var selected = _treeView.SelectedObject;
+        if (selected is not null)
+        {
+            _ = RefreshMessageCountsAsync(selected);
+        }
     }
 
     private IEnumerable<TreeNodeModel> GetChildren(TreeNodeModel node)
