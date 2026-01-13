@@ -43,12 +43,52 @@ public class ServiceBusConnectionService
             // Dead-letter queue
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:queue:{queue.Name}:dlq",
-                DisplayName: $"{queue.Name} (DLQ)",
+                DisplayName: $"{queue.Name} DLQ",
                 NodeType: TreeNodeType.QueueDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: queue.Name
             );
         }
+    }
+
+    public async Task<long> GetQueueMessageCountAsync(string connectionName, string queueName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetQueueRuntimePropertiesAsync(queueName);
+        return props.Value.ActiveMessageCount;
+    }
+
+    public async Task<long> GetSubscriptionMessageCountAsync(string connectionName, string topicName, string subscriptionName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetSubscriptionRuntimePropertiesAsync(topicName, subscriptionName);
+        return props.Value.ActiveMessageCount;
+    }
+
+    public async Task<long> GetQueueDlqMessageCountAsync(string connectionName, string queueName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetQueueRuntimePropertiesAsync(queueName);
+        return props.Value.DeadLetterMessageCount;
+    }
+
+    public async Task<long> GetSubscriptionDlqMessageCountAsync(string connectionName, string topicName, string subscriptionName)
+    {
+        var connection = _connectionStore.GetByName(connectionName);
+        if (connection is null) return -1;
+
+        var adminClient = new ServiceBusAdministrationClient(connection.ConnectionString);
+        var props = await adminClient.GetSubscriptionRuntimePropertiesAsync(topicName, subscriptionName);
+        return props.Value.DeadLetterMessageCount;
     }
 
     public async IAsyncEnumerable<TreeNodeModel> GetTopicsAsync(string connectionName)
@@ -92,7 +132,7 @@ public class ServiceBusConnectionService
             // Dead-letter
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:topic:{topicName}:sub:{sub.SubscriptionName}:dlq",
-                DisplayName: $"{sub.SubscriptionName} (DLQ)",
+                DisplayName: $"{sub.SubscriptionName} DLQ",
                 NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: sub.SubscriptionName,
