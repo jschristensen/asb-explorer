@@ -169,6 +169,11 @@ public class TreePanel : FrameView
                 _ = LoadMessageCountsAsync(children, node.ConnectionName!);
             }
 
+            if (node.NodeType == TreeNodeType.Topic && children.Count > 0)
+            {
+                _ = LoadMessageCountsAsync(children, node.ConnectionName!);
+            }
+
             // Refresh the tree on UI thread
             Application.Invoke(() =>
             {
