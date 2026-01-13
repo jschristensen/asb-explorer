@@ -20,6 +20,8 @@ public class TreePanel : FrameView
 
     public event Action<TreeNodeModel>? NodeSelected;
     public event Action? AddConnectionClicked;
+    public event Action? RefreshStarted;
+    public event Action? RefreshCompleted;
 
     public TreePanel(
         ServiceBusConnectionService connectionService,
@@ -323,31 +325,39 @@ public class TreePanel : FrameView
 
     private async Task RefreshMessageCountsAsync(TreeNodeModel node)
     {
-        switch (node.NodeType)
+        Application.Invoke(() => RefreshStarted?.Invoke());
+        try
         {
-            case TreeNodeType.Namespace:
-                // Refresh all children of this namespace
-                if (_childrenCache.TryGetValue(node.Id, out var namespaceChildren))
-                {
-                    await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!, node);
-                }
-                break;
+            switch (node.NodeType)
+            {
+                case TreeNodeType.Namespace:
+                    // Refresh all children of this namespace
+                    if (_childrenCache.TryGetValue(node.Id, out var namespaceChildren))
+                    {
+                        await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!, node);
+                    }
+                    break;
 
-            case TreeNodeType.Topic:
-                // Refresh all subscriptions under this topic
-                if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
-                {
-                    await LoadMessageCountsAsync(topicChildren, node.ConnectionName!, node);
-                }
-                break;
+                case TreeNodeType.Topic:
+                    // Refresh all subscriptions under this topic
+                    if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
+                    {
+                        await LoadMessageCountsAsync(topicChildren, node.ConnectionName!, node);
+                    }
+                    break;
 
-            case TreeNodeType.Queue:
-            case TreeNodeType.QueueDeadLetter:
-            case TreeNodeType.TopicSubscription:
-            case TreeNodeType.TopicSubscriptionDeadLetter:
-                // Refresh single node - find it in parent cache and update
-                await RefreshSingleNodeCountAsync(node);
-                break;
+                case TreeNodeType.Queue:
+                case TreeNodeType.QueueDeadLetter:
+                case TreeNodeType.TopicSubscription:
+                case TreeNodeType.TopicSubscriptionDeadLetter:
+                    // Refresh single node - find it in parent cache and update
+                    await RefreshSingleNodeCountAsync(node);
+                    break;
+            }
+        }
+        finally
+        {
+            Application.Invoke(() => RefreshCompleted?.Invoke());
         }
     }
 

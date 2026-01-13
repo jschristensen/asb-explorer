@@ -16,6 +16,7 @@ public class MainWindow : Window
     private readonly SettingsStore _settingsStore;
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
+    private readonly Label _refreshingLabel;
 
     private TreeNodeModel? _currentNode;
 
@@ -77,13 +78,22 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
-        // Status bar with theme toggle
+        // Status bar with theme toggle and refresh indicator
         _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
+        _refreshingLabel = new Label
+        {
+            Text = "Refreshing...",
+            Visible = false,
+            X = Pos.AnchorEnd(15)
+        };
         _statusBar = new StatusBar([_themeShortcut]);
+        _statusBar.Add(_refreshingLabel);
 
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
         _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
+        _treePanel.RefreshStarted += () => _refreshingLabel.Visible = true;
+        _treePanel.RefreshCompleted += () => _refreshingLabel.Visible = false;
         _messageList.MessageSelected += OnMessageSelected;
     }
 
