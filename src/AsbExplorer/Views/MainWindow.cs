@@ -273,4 +273,29 @@ public class MainWindow : Window
         var dialog = new ShortcutsDialog();
         Application.Run(dialog);
     }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        if (key == Key.E.WithAlt)
+        {
+            _treePanel.SetFocus();
+            return true;
+        }
+        if (key == Key.M.WithAlt)
+        {
+            _messageList.SetFocus();
+            return true;
+        }
+        if (key == Key.D.WithAlt)
+        {
+            _messageDetail.SetFocus();
+            return true;
+        }
+        if (key == (Key)'?')
+        {
+            ShowShortcutsDialog();
+            return true;
+        }
+        return base.OnKeyDown(key);
+    }
 }
