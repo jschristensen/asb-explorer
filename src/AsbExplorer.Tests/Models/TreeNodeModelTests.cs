@@ -28,4 +28,17 @@ public class TreeNodeModelTests
 
         Assert.Equal("my-queue (...)", node.EffectiveDisplayName);
     }
+
+    [Fact]
+    public void EffectiveDisplayName_WhenHasCount_ReturnsNameWithCount()
+    {
+        var node = new TreeNodeModel(
+            Id: "test",
+            DisplayName: "my-queue",
+            NodeType: TreeNodeType.Queue,
+            MessageCount: 42
+        );
+
+        Assert.Equal("my-queue (42)", node.EffectiveDisplayName);
+    }
 }
