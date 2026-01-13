@@ -163,6 +163,12 @@ public class TreePanel : FrameView
             // Cache the results
             _childrenCache[node.Id] = children;
 
+            // Start loading message counts in background
+            if (node.NodeType == TreeNodeType.Namespace && children.Count > 0)
+            {
+                _ = LoadMessageCountsAsync(children, node.ConnectionName!);
+            }
+
             // Refresh the tree on UI thread
             Application.Invoke(() =>
             {
@@ -249,5 +255,50 @@ public class TreePanel : FrameView
         }
 
         return results;
+    }
+
+    private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName)
+    {
+        var tasks = nodes.Select(async node =>
+        {
+            try
+            {
+                var count = node.NodeType switch
+                {
+                    TreeNodeType.Queue => await _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!),
+                    TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
+                    TreeNodeType.TopicSubscription => await _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
+                    TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
+                    _ => (long?)null
+                };
+
+                if (count.HasValue)
+                {
+                    return node with { MessageCount = count.Value };
+                }
+                return node;
+            }
+            catch
+            {
+                return node with { MessageCount = -1 };
+            }
+        });
+
+        var updatedNodes = await Task.WhenAll(tasks);
+
+        // Update cache with new nodes
+        foreach (var updated in updatedNodes.Where(n => n.MessageCount.HasValue))
+        {
+            var index = nodes.FindIndex(n => n.Id == updated.Id);
+            if (index >= 0)
+            {
+                nodes[index] = updated;
+            }
+        }
+
+        Application.Invoke(() =>
+        {
+            _treeView.SetNeedsDraw();
+        });
     }
 }
