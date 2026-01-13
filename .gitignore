@@ -13,3 +13,7 @@ obj/
 # OS
 .DS_Store
 Thumbs.db
+
+# Publish output
+publish/
+publish-test/
