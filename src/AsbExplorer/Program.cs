@@ -24,6 +24,9 @@ await favoritesStore.LoadAsync();
 await connectionStore.LoadAsync();
 await settingsStore.LoadAsync();
 
+// Suppress Terminal.Gui config warnings about $schema property
+ConfigurationManager.ThrowOnJsonErrors = false;
+
 Application.Init();
 
 // Set Ctrl+Q as the quit key (v2 default is Esc)
