@@ -43,7 +43,7 @@ public class ServiceBusConnectionService
             // Dead-letter queue
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:queue:{queue.Name}:dlq",
-                DisplayName: $"{queue.Name} (DLQ)",
+                DisplayName: $"{queue.Name} DLQ",
                 NodeType: TreeNodeType.QueueDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: queue.Name
@@ -92,7 +92,7 @@ public class ServiceBusConnectionService
             // Dead-letter
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:topic:{topicName}:sub:{sub.SubscriptionName}:dlq",
-                DisplayName: $"{sub.SubscriptionName} (DLQ)",
+                DisplayName: $"{sub.SubscriptionName} DLQ",
                 NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: sub.SubscriptionName,
