@@ -68,7 +68,7 @@ public class TreePanel : FrameView
 
         _treeView.KeyDown += (s, e) =>
         {
-            if (e.KeyCode == KeyCode.R)
+            if (e.KeyCode == (KeyCode)'r' || e.KeyCode == (KeyCode)'R')
             {
                 var selected = _treeView.SelectedObject;
                 if (selected is not null)
