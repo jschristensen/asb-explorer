@@ -420,8 +420,9 @@ public class MainWindow : Window
                 }
             }
 
-            // Refresh message list
+            // Refresh message list and tree counts
             RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
         }
         catch (Exception ex)
         {
@@ -472,6 +473,7 @@ public class MainWindow : Window
             // Clear selection and refresh
             _messageList.ClearSelection();
             RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
         }
         catch (Exception ex)
         {
