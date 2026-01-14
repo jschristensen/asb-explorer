@@ -86,16 +86,8 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
             };
 
             await using var receiver = client.CreateReceiver(queueName, options);
-            var message = await receiver.ReceiveDeferredMessageAsync(sequenceNumber);
-
-            if (message is null)
-            {
-                // Message not deferred, try regular receive with filter
-                return await CompleteBySequenceNumberAsync(receiver, sequenceNumber);
-            }
-
-            await receiver.CompleteMessageAsync(message);
-            return new RequeueResult(true, null);
+            // DLQ messages are not deferred, so we receive by sequence number directly
+            return await CompleteBySequenceNumberAsync(receiver, sequenceNumber);
         }
         catch (Exception ex)
         {
