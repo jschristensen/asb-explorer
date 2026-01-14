@@ -8,6 +8,7 @@ namespace AsbExplorer.Views;
 public class TreePanel : FrameView
 {
     private readonly TreeView<TreeNodeModel> _treeView;
+    private readonly CheckBox _autoRefreshCheckbox;
     private readonly ServiceBusConnectionService _connectionService;
     private readonly ConnectionStore _connectionStore;
     private readonly FavoritesStore _favoritesStore;
@@ -22,6 +23,7 @@ public class TreePanel : FrameView
     public event Action? AddConnectionClicked;
     public event Action? RefreshStarted;
     public event Action? RefreshCompleted;
+    public event Action<bool>? AutoRefreshTreeCountsToggled;
 
     public TreePanel(
         ServiceBusConnectionService connectionService,
@@ -48,10 +50,23 @@ public class TreePanel : FrameView
             AddConnectionClicked?.Invoke();
         };
 
+        _autoRefreshCheckbox = new CheckBox
+        {
+            Text = "Auto-refresh counts",
+            X = 0,
+            Y = Pos.Bottom(addButton),
+            CheckedState = CheckState.UnChecked
+        };
+
+        _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
+        {
+            AutoRefreshTreeCountsToggled?.Invoke(e.NewValue == CheckState.Checked);
+        };
+
         _treeView = new TreeView<TreeNodeModel>
         {
             X = 0,
-            Y = Pos.Bottom(addButton),
+            Y = Pos.Bottom(_autoRefreshCheckbox),
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(
@@ -71,7 +86,7 @@ public class TreePanel : FrameView
             }
         };
 
-        Add(addButton, _treeView);
+        Add(addButton, _autoRefreshCheckbox, _treeView);
 
         // Ensure TreeView gets focus when this panel is focused
         HasFocusChanged += (s, e) =>
@@ -139,22 +154,35 @@ public class TreePanel : FrameView
         _ = RefreshAllCountsAsync();
     }
 
+    public void SetAutoRefreshChecked(bool isChecked)
+    {
+        _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
+        if (!isChecked)
+        {
+            _autoRefreshCheckbox.Text = "Auto-refresh counts";
+        }
+    }
+
+    public void UpdateAutoRefreshCountdown(int secondsRemaining)
+    {
+        _autoRefreshCheckbox.Text = $"Auto-refresh counts ({secondsRemaining}s)";
+    }
+
     private async Task RefreshAllCountsAsync()
     {
         Application.Invoke(() => RefreshStarted?.Invoke());
         try
         {
-            // Find all namespace nodes and refresh their children
             foreach (var kvp in _childrenCache)
             {
                 var children = kvp.Value;
                 if (children.Count > 0 && children[0].ConnectionName is not null)
                 {
-                    // Find parent node to pass for refresh
                     var parentId = kvp.Key;
                     var parentNode = FindNodeById(parentId);
                     if (parentNode is not null &&
-                        (parentNode.NodeType == TreeNodeType.Namespace || parentNode.NodeType == TreeNodeType.Topic))
+                        (parentNode.NodeType == TreeNodeType.QueuesFolder ||
+                         parentNode.NodeType == TreeNodeType.Topic))
                     {
                         await LoadMessageCountsAsync(children, parentNode.ConnectionName!, parentNode);
                     }
@@ -232,6 +260,8 @@ public class TreePanel : FrameView
             var children = node.NodeType switch
             {
                 TreeNodeType.Namespace => await LoadQueuesAndTopicsAsync(node),
+                TreeNodeType.QueuesFolder => await LoadQueuesAsync(node),
+                TreeNodeType.TopicsFolder => await LoadTopicsAsync(node),
                 TreeNodeType.Topic => await LoadSubscriptionsAsync(node),
                 _ => new List<TreeNodeModel>()
             };
@@ -240,7 +270,7 @@ public class TreePanel : FrameView
             _childrenCache[node.Id] = children;
 
             // Start loading message counts in background
-            if (node.NodeType == TreeNodeType.Namespace && children.Count > 0)
+            if (node.NodeType == TreeNodeType.QueuesFolder && children.Count > 0)
             {
                 _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
@@ -309,20 +339,44 @@ public class TreePanel : FrameView
         ));
     }
 
-    private async Task<List<TreeNodeModel>> LoadQueuesAndTopicsAsync(TreeNodeModel ns)
+    private Task<List<TreeNodeModel>> LoadQueuesAndTopicsAsync(TreeNodeModel ns)
+    {
+        // Return folder nodes - actual queues/topics loaded when folders expand
+        var folders = new List<TreeNodeModel>
+        {
+            new(
+                Id: $"{ns.Id}:queues",
+                DisplayName: "Queues",
+                NodeType: TreeNodeType.QueuesFolder,
+                ConnectionName: ns.ConnectionName
+            ),
+            new(
+                Id: $"{ns.Id}:topics",
+                DisplayName: "Topics",
+                NodeType: TreeNodeType.TopicsFolder,
+                ConnectionName: ns.ConnectionName
+            )
+        };
+        return Task.FromResult(folders);
+    }
+
+    private async Task<List<TreeNodeModel>> LoadQueuesAsync(TreeNodeModel folder)
     {
         var results = new List<TreeNodeModel>();
-
-        await foreach (var queue in _connectionService.GetQueuesAsync(ns.ConnectionName!))
+        await foreach (var queue in _connectionService.GetQueuesAsync(folder.ConnectionName!))
         {
             results.Add(queue);
         }
+        return results;
+    }
 
-        await foreach (var topic in _connectionService.GetTopicsAsync(ns.ConnectionName!))
+    private async Task<List<TreeNodeModel>> LoadTopicsAsync(TreeNodeModel folder)
+    {
+        var results = new List<TreeNodeModel>();
+        await foreach (var topic in _connectionService.GetTopicsAsync(folder.ConnectionName!))
         {
             results.Add(topic);
         }
-
         return results;
     }
 
@@ -340,7 +394,7 @@ public class TreePanel : FrameView
 
     private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
-        // First, mark all countable nodes as loading and show "(...)"
+        // Mark all countable nodes as loading (no visual change since we removed (...) display)
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
@@ -350,12 +404,6 @@ public class TreePanel : FrameView
                 nodes[i] = node with { IsLoadingCount = true, MessageCount = null };
             }
         }
-
-        Application.Invoke(() =>
-        {
-            _treeView.RefreshObject(parentNode);
-            _treeView.SetNeedsDraw();
-        });
 
         // Now fetch actual counts
         var tasks = nodes.Select(async node =>
@@ -397,8 +445,11 @@ public class TreePanel : FrameView
 
         Application.Invoke(() =>
         {
+            // Preserve focus during refresh to prevent stealing focus from other panels
+            var focused = Application.Navigation?.GetFocused();
             _treeView.RefreshObject(parentNode);
             _treeView.SetNeedsDraw();
+            focused?.SetFocus();
         });
     }
 
@@ -409,11 +460,11 @@ public class TreePanel : FrameView
         {
             switch (node.NodeType)
             {
-                case TreeNodeType.Namespace:
-                    // Refresh all children of this namespace
-                    if (_childrenCache.TryGetValue(node.Id, out var namespaceChildren))
+                case TreeNodeType.QueuesFolder:
+                    // Refresh all children of this folder
+                    if (_childrenCache.TryGetValue(node.Id, out var folderChildren))
                     {
-                        await LoadMessageCountsAsync(namespaceChildren, node.ConnectionName!, node);
+                        await LoadMessageCountsAsync(folderChildren, node.ConnectionName!, node);
                     }
                     break;
 
@@ -473,7 +524,12 @@ public class TreePanel : FrameView
             if (index >= 0)
             {
                 kvp.Value[index] = node with { MessageCount = count };
-                Application.Invoke(() => _treeView.SetNeedsDraw());
+                Application.Invoke(() =>
+                {
+                    var focused = Application.Navigation?.GetFocused();
+                    _treeView.SetNeedsDraw();
+                    focused?.SetFocus();
+                });
                 return;
             }
         }

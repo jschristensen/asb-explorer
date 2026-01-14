@@ -7,16 +7,31 @@ namespace AsbExplorer.Views;
 public class MessageListView : FrameView
 {
     private readonly TableView _tableView;
+    private readonly CheckBox _autoRefreshCheckbox;
     private readonly DataTable _dataTable;
     private IReadOnlyList<PeekedMessage> _messages = [];
 
     public event Action<PeekedMessage>? MessageSelected;
+    public event Action<bool>? AutoRefreshToggled;
 
     public MessageListView()
     {
         Title = "Messages";
         CanFocus = true;
         TabStop = TabBehavior.TabGroup;
+
+        _autoRefreshCheckbox = new CheckBox
+        {
+            Text = "Auto-refresh",
+            X = Pos.AnchorEnd(16),
+            Y = 0,
+            CheckedState = CheckState.UnChecked
+        };
+
+        _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
+        {
+            AutoRefreshToggled?.Invoke(e.NewValue == CheckState.Checked);
+        };
 
         _dataTable = new DataTable();
         _dataTable.Columns.Add("#", typeof(long));
@@ -30,7 +45,7 @@ public class MessageListView : FrameView
         _tableView = new TableView
         {
             X = 0,
-            Y = 0,
+            Y = 1,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             Table = new DataTableSource(_dataTable),
@@ -56,7 +71,7 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_tableView);
+        Add(_autoRefreshCheckbox, _tableView);
 
         // Ensure TableView gets focus when this view is focused
         HasFocusChanged += (s, e) =>
@@ -97,7 +112,6 @@ public class MessageListView : FrameView
         _tableView.Style.ExpandLastColumn = true;  // ContentType expands to fill
 
         _tableView.Table = new DataTableSource(_dataTable);
-        _tableView.SetNeedsDraw();
     }
 
     public void Clear()
@@ -105,7 +119,20 @@ public class MessageListView : FrameView
         _messages = [];
         _dataTable.Rows.Clear();
         _tableView.Table = new DataTableSource(_dataTable);
-        _tableView.SetNeedsDraw();
+    }
+
+    public void SetAutoRefreshChecked(bool isChecked)
+    {
+        _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
+        if (!isChecked)
+        {
+            _autoRefreshCheckbox.Text = "Auto-refresh";
+        }
+    }
+
+    public void UpdateAutoRefreshCountdown(int secondsRemaining)
+    {
+        _autoRefreshCheckbox.Text = $"Auto-refresh ({secondsRemaining}s)";
     }
 }
 

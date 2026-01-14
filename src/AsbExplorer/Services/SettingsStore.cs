@@ -53,6 +53,24 @@ public class SettingsStore
         await SaveAsync();
     }
 
+    public async Task SetAutoRefreshTreeCountsAsync(bool enabled)
+    {
+        Settings.AutoRefreshTreeCounts = enabled;
+        await SaveAsync();
+    }
+
+    public async Task SetAutoRefreshMessageListAsync(bool enabled)
+    {
+        Settings.AutoRefreshMessageList = enabled;
+        await SaveAsync();
+    }
+
+    public async Task SetAutoRefreshIntervalAsync(int seconds)
+    {
+        Settings.AutoRefreshIntervalSeconds = seconds;
+        await SaveAsync();
+    }
+
     private async Task SaveAsync()
     {
         var json = JsonSerializer.Serialize(Settings, AppJsonContext.Default.AppSettings);

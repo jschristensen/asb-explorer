@@ -22,14 +22,14 @@ public class MessageDetailView : FrameView
         TabStop = TabBehavior.TabGroup;
         _formatter = formatter;
 
+        // CanFocus = false prevents TabView from stealing focus during data refresh
         _tabView = new TabView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            CanFocus = false
         };
 
         // Properties tab
@@ -73,14 +73,23 @@ public class MessageDetailView : FrameView
 
         Add(_tabView);
 
-        // Ensure TabView gets focus when this view is focused
+        // Forward focus to the selected tab's content (TabView itself is non-focusable)
         HasFocusChanged += (s, e) =>
         {
-            if (e.NewValue && !_tabView.HasFocus)
+            if (e.NewValue)
             {
-                _tabView.SetFocus();
+                FocusSelectedTabContent();
             }
         };
+    }
+
+    private void FocusSelectedTabContent()
+    {
+        var selectedTab = _tabView.SelectedTab;
+        if (selectedTab?.View != null && selectedTab.View.CanFocus)
+        {
+            selectedTab.View.SetFocus();
+        }
     }
 
     public void SwitchToTab(int index)
@@ -88,7 +97,27 @@ public class MessageDetailView : FrameView
         if (index >= 0 && index < _tabView.Tabs.Count())
         {
             _tabView.SelectedTab = _tabView.Tabs.ElementAt(index);
+            FocusSelectedTabContent();
         }
+    }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        // P/B to switch tabs (no modifiers)
+        if (!key.IsCtrl && !key.IsAlt && !key.IsShift)
+        {
+            if (key.KeyCode == KeyCode.P)
+            {
+                SwitchToTab(0);
+                return true;
+            }
+            if (key.KeyCode == KeyCode.B)
+            {
+                SwitchToTab(1);
+                return true;
+            }
+        }
+        return base.OnKeyDown(key);
     }
 
     public void SetMessage(PeekedMessage message)
@@ -150,7 +179,6 @@ public class MessageDetailView : FrameView
         });
 
         _propertiesTable.Table = new DataTableSource(_propsDataTable);
-        _propertiesTable.SetNeedsDraw();
 
         // Body
         var (content, format) = _formatter.Format(message.Body, message.ContentType);
@@ -214,8 +242,6 @@ public class MessageDetailView : FrameView
     {
         _propsDataTable.Rows.Clear();
         _propertiesTable.Table = new DataTableSource(_propsDataTable);
-        _propertiesTable.SetNeedsDraw();
-
         _bodyContainer.Clear();
     }
 }
@@ -618,42 +644,10 @@ internal class JsonBodyView : View
 
     private void CopyToClipboard()
     {
-        if (string.IsNullOrEmpty(_rawContent))
-            return;
-
-        // Include debug info to help diagnose formatting issues
-        var firstChars = string.Join(",", _rawContent.Take(10).Select(c => $"0x{(int)c:X2}"));
-        var startsWithBrace = _rawContent.TrimStart().StartsWith('{');
-
-        // Try to parse AND serialize JSON (mimicking MessageFormatter.TryFormatJson)
-        string? parseError = null;
-        try
+        var content = GetFormattedContent();
+        if (!string.IsNullOrEmpty(content))
         {
-            var withoutBom = _rawContent.TrimStart('\uFEFF');
-            using var doc = System.Text.Json.JsonDocument.Parse(withoutBom);
-            using var stream = new System.IO.MemoryStream();
-            using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
-            doc.WriteTo(writer);
-            writer.Flush();
-            var serialized = System.Text.Encoding.UTF8.GetString(stream.ToArray());
-            parseError = $"Success! Serialized length: {serialized.Length}, has newlines: {serialized.Contains('\n')}";
+            Clipboard.TrySetClipboardData(content);
         }
-        catch (Exception ex)
-        {
-            parseError = $"FAILED: {ex.GetType().Name}: {ex.Message}";
-        }
-
-        var debugInfo = $"=== DEBUG INFO ===\n" +
-                        $"Auto-detected format: {_autoDetectedFormat}\n" +
-                        $"Selected format: {_selectedFormat}\n" +
-                        $"Raw content length: {_rawContent.Length}\n" +
-                        $"First 10 char codes: {firstChars}\n" +
-                        $"Starts with brace (after trim): {startsWithBrace}\n" +
-                        $"JSON parse result: {parseError}\n" +
-                        $"Formatted has newlines: {_formattedContent.Contains('\n')}\n" +
-                        $"Document lines: {_currentDocument?.GetVisibleLines().Count ?? 0}\n" +
-                        $"=== RAW CONTENT ===\n{_rawContent}";
-
-        Clipboard.TrySetClipboardData(debugInfo);
     }
 }

@@ -15,7 +15,9 @@ public record TreeNodeModel(
         TreeNodeType.FavoritesRoot or
         TreeNodeType.ConnectionsRoot or
         TreeNodeType.Namespace or
-        TreeNodeType.Topic;
+        TreeNodeType.Topic or
+        TreeNodeType.QueuesFolder or
+        TreeNodeType.TopicsFolder;
 
     public bool CanPeekMessages => NodeType is
         TreeNodeType.Queue or
@@ -24,11 +26,15 @@ public record TreeNodeModel(
         TreeNodeType.TopicSubscriptionDeadLetter or
         TreeNodeType.Favorite;
 
+    private bool IsFolderNode => NodeType is
+        TreeNodeType.QueuesFolder or
+        TreeNodeType.TopicsFolder;
+
     public string EffectiveDisplayName
     {
         get
         {
-            if (IsLoadingCount) return $"{DisplayName} (...)";
+            if (IsFolderNode) return DisplayName;
             if (MessageCount == -1) return $"{DisplayName} (?)";
             if (MessageCount.HasValue) return $"{DisplayName} ({MessageCount})";
             return DisplayName;
