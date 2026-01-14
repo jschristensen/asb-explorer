@@ -53,4 +53,40 @@ public class SettingsStoreTests : IDisposable
 
         Assert.Equal("dark", _store.Settings.Theme);
     }
+
+    [Fact]
+    public async Task SetAutoRefreshTreeCountsAsync_SavesAndPersists()
+    {
+        await _store.LoadAsync();
+        await _store.SetAutoRefreshTreeCountsAsync(true);
+
+        var newStore = new SettingsStore(_tempDir);
+        await newStore.LoadAsync();
+
+        Assert.True(newStore.Settings.AutoRefreshTreeCounts);
+    }
+
+    [Fact]
+    public async Task SetAutoRefreshMessageListAsync_SavesAndPersists()
+    {
+        await _store.LoadAsync();
+        await _store.SetAutoRefreshMessageListAsync(true);
+
+        var newStore = new SettingsStore(_tempDir);
+        await newStore.LoadAsync();
+
+        Assert.True(newStore.Settings.AutoRefreshMessageList);
+    }
+
+    [Fact]
+    public async Task SetAutoRefreshIntervalAsync_SavesAndPersists()
+    {
+        await _store.LoadAsync();
+        await _store.SetAutoRefreshIntervalAsync(10);
+
+        var newStore = new SettingsStore(_tempDir);
+        await newStore.LoadAsync();
+
+        Assert.Equal(10, newStore.Settings.AutoRefreshIntervalSeconds);
+    }
 }
