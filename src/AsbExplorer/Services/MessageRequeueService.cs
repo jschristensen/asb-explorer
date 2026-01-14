@@ -129,13 +129,16 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         string entityPath,
         string? topicName,
         IReadOnlyList<PeekedMessage> messages,
-        bool removeOriginals)
+        bool removeOriginals,
+        Action<int, int>? onProgress = null)
     {
         var successCount = 0;
         var failures = new List<(long SequenceNumber, string Error)>();
+        var processed = 0;
 
         foreach (var message in messages)
         {
+            onProgress?.Invoke(processed, messages.Count);
             // Send to original entity
             RequeueResult sendResult;
             if (topicName is not null)
@@ -150,6 +153,7 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
             if (!sendResult.Success)
             {
                 failures.Add((message.SequenceNumber, sendResult.ErrorMessage ?? "Unknown error"));
+                processed++;
                 continue;
             }
 
@@ -173,13 +177,16 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
                     // Message was sent but not removed - partial success
                     // Still count as success since message was requeued
                     successCount++;
+                    processed++;
                     continue;
                 }
             }
 
             successCount++;
+            processed++;
         }
 
+        onProgress?.Invoke(messages.Count, messages.Count);
         return new BulkRequeueResult(successCount, failures.Count, failures);
     }
 

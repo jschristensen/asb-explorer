@@ -430,7 +430,7 @@ public class MainWindow : Window
         }
     }
 
-    private async void OnRequeueSelectedRequested()
+    private void OnRequeueSelectedRequested()
     {
         if (_currentNode is null || _currentNode.ConnectionName is null)
         {
@@ -443,41 +443,34 @@ public class MainWindow : Window
             return;
         }
 
+        var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
+        var topicName = isSubscription ? _currentNode.ParentEntityPath : null;
+        var connectionName = _currentNode.ConnectionName;
+        var entityPath = _currentNode.EntityPath!;
+
         _isModalOpen = true;
-        var confirmDialog = new RequeueConfirmDialog(selectedMessages.Count);
-        Application.Run(confirmDialog);
+        var dialog = new RequeueProgressDialog(
+            selectedMessages.Count,
+            async (removeOriginals, onProgress) =>
+            {
+                return await _requeueService.RequeueMessagesAsync(
+                    connectionName,
+                    entityPath,
+                    topicName,
+                    selectedMessages,
+                    removeOriginals,
+                    onProgress);
+            });
+
+        Application.Run(dialog);
         _isModalOpen = false;
 
-        if (!confirmDialog.Confirmed)
+        if (dialog.Confirmed)
         {
-            return;
-        }
-
-        try
-        {
-            var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
-            var topicName = isSubscription ? _currentNode.ParentEntityPath : null;
-
-            var result = await _requeueService.RequeueMessagesAsync(
-                _currentNode.ConnectionName,
-                _currentNode.EntityPath!,
-                topicName,
-                selectedMessages,
-                confirmDialog.RemoveOriginals);
-
-            _isModalOpen = true;
-            var resultDialog = new RequeueResultDialog(result);
-            Application.Run(resultDialog);
-            _isModalOpen = false;
-
             // Clear selection and refresh
             _messageList.ClearSelection();
             RefreshCurrentNode();
             _treePanel.RefreshAllCounts();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.ErrorQuery("Error", $"Failed to requeue messages: {ex.Message}", "OK");
         }
     }
 

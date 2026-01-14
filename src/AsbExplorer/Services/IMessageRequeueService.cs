@@ -47,5 +47,6 @@ public interface IMessageRequeueService
         string entityPath,
         string? topicName,
         IReadOnlyList<PeekedMessage> messages,
-        bool removeOriginals);
+        bool removeOriginals,
+        Action<int, int>? onProgress = null);
 }
