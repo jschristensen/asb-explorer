@@ -14,6 +14,7 @@ public class MainWindow : Window
     private readonly MessageDetailView _messageDetail;
     private readonly MessagePeekService _peekService;
     private readonly IMessageRequeueService _requeueService;
+    private readonly MessageFormatter _formatter;
     private readonly FavoritesStore _favoritesStore;
     private readonly ConnectionStore _connectionStore;
     private readonly SettingsStore _settingsStore;
@@ -45,6 +46,7 @@ public class MainWindow : Window
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
         _requeueService = requeueService;
+        _formatter = formatter;
         _favoritesStore = favoritesStore;
         _connectionStore = connectionStore;
         _settingsStore = settingsStore;
@@ -291,6 +293,7 @@ public class MainWindow : Window
 
         if (!node.CanPeekMessages || node.ConnectionName is null)
         {
+            _messageList.SetEntityName(null);
             _messageList.Clear();
             _messageDetail.Clear();
             return;
@@ -303,6 +306,19 @@ public class MainWindow : Window
                 TreeNodeType.TopicSubscriptionDeadLetter;
 
             _messageList.IsDeadLetterMode = isDeadLetter;
+
+            // Build entity display name
+            var entityDisplayName = node.NodeType switch
+            {
+                TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
+                    => $"{node.ParentEntityPath}/{node.EntityPath}",
+                _ => node.EntityPath
+            };
+            if (isDeadLetter && entityDisplayName is not null)
+            {
+                entityDisplayName += " (DLQ)";
+            }
+            _messageList.SetEntityName(entityDisplayName);
 
             var topicName = node.NodeType is
                 TreeNodeType.TopicSubscription or
@@ -349,7 +365,8 @@ public class MainWindow : Window
         var entityName = isSubscription ? _currentNode.ParentEntityPath : _currentNode.EntityPath;
 
         _isModalOpen = true;
-        var dialog = new EditMessageDialog(message, entityName ?? "unknown");
+        var isDarkTheme = _settingsStore.Settings.Theme == "dark";
+        var dialog = new EditMessageDialog(message, entityName ?? "unknown", _formatter, isDarkTheme);
         Application.Run(dialog);
         _isModalOpen = false;
 

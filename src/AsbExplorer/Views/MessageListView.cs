@@ -10,9 +10,10 @@ public class MessageListView : FrameView
     private readonly CheckBox _autoRefreshCheckbox;
     private readonly DataTable _dataTable;
     private IReadOnlyList<PeekedMessage> _messages = [];
-    private readonly HashSet<long> _selectedSequenceNumbers = [];
     private readonly Button _requeueButton;
+    private readonly Button _clearAllButton;
     private bool _isDeadLetterMode;
+    private readonly HashSet<long> _selectedSequenceNumbers = [];
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
@@ -26,8 +27,14 @@ public class MessageListView : FrameView
         {
             _isDeadLetterMode = value;
             UpdateRequeueButtonVisibility();
-            RebuildTable();
+            // Rebuild the table with/without checkbox wrapper
+            SetMessages(_messages);
         }
+    }
+
+    public void SetEntityName(string? entityName)
+    {
+        Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
     }
 
     public MessageListView()
@@ -59,6 +66,16 @@ public class MessageListView : FrameView
 
         _requeueButton.Accepting += (s, e) => RequeueSelectedRequested?.Invoke();
 
+        _clearAllButton = new Button
+        {
+            Text = "Clear Selection",
+            X = Pos.Right(_requeueButton) + 1,
+            Y = 0,
+            Visible = false
+        };
+
+        _clearAllButton.Accepting += (s, e) => ClearSelection();
+
         _dataTable = new DataTable();
 
         _tableView = new TableView
@@ -80,7 +97,7 @@ public class MessageListView : FrameView
             {
                 if (_isDeadLetterMode)
                 {
-                    // In DLQ mode, Enter opens edit dialog
+                    // In DLQ mode, Enter opens edit dialog (checkbox toggle is handled by wrapper)
                     EditMessageRequested?.Invoke(_messages[e.Row]);
                 }
                 else
@@ -99,7 +116,40 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_autoRefreshCheckbox, _requeueButton, _tableView);
+        // Handle mouse clicks on checkbox column (both header and data rows)
+        _tableView.MouseClick += (s, e) =>
+        {
+            if (!_isDeadLetterMode)
+                return;
+
+            // ScreenToCell returns the clicked column in the out parameter when clicking on header
+            var cell = _tableView.ScreenToCell(e.Position, out int? headerCol);
+
+            if (headerCol.HasValue && headerCol.Value == 0)
+            {
+                // Header click on checkbox column - toggle all
+                if (_selectedSequenceNumbers.Count < _messages.Count)
+                {
+                    foreach (var msg in _messages)
+                        _selectedSequenceNumbers.Add(msg.SequenceNumber);
+                }
+                else
+                {
+                    _selectedSequenceNumbers.Clear();
+                }
+                RefreshCheckboxDisplay();
+                UpdateRequeueButtonVisibility();
+                e.Handled = true;
+            }
+            else if (cell.HasValue && cell.Value.X == 0 && cell.Value.Y >= 0 && cell.Value.Y < _messages.Count)
+            {
+                // Data row click on checkbox column - toggle single row
+                ToggleRowSelection(cell.Value.Y);
+                e.Handled = true;
+            }
+        };
+
+        Add(_autoRefreshCheckbox, _requeueButton, _clearAllButton, _tableView);
 
         // Ensure TableView gets focus when this view is focused
         HasFocusChanged += (s, e) =>
@@ -118,19 +168,10 @@ public class MessageListView : FrameView
             return base.OnKeyDown(key);
         }
 
-        // Space - toggle selection
+        // Space - toggle selection for current row
         if (key.KeyCode == KeyCode.Space && _tableView.SelectedRow >= 0 && _tableView.SelectedRow < _messages.Count)
         {
-            var seq = _messages[_tableView.SelectedRow].SequenceNumber;
-            if (_selectedSequenceNumbers.Contains(seq))
-            {
-                _selectedSequenceNumbers.Remove(seq);
-            }
-            else
-            {
-                _selectedSequenceNumbers.Add(seq);
-            }
-            UpdateSelectionDisplay();
+            ToggleRowSelection(_tableView.SelectedRow);
             return true;
         }
 
@@ -138,53 +179,81 @@ public class MessageListView : FrameView
         if (key.IsCtrl && key.KeyCode == KeyCode.A)
         {
             foreach (var msg in _messages)
-            {
                 _selectedSequenceNumbers.Add(msg.SequenceNumber);
-            }
-            UpdateSelectionDisplay();
+            RefreshCheckboxDisplay();
+            UpdateRequeueButtonVisibility();
             return true;
         }
 
         // Ctrl+D - deselect all
         if (key.IsCtrl && key.KeyCode == KeyCode.D)
         {
-            _selectedSequenceNumbers.Clear();
-            UpdateSelectionDisplay();
+            ClearSelection();
             return true;
         }
 
         return base.OnKeyDown(key);
     }
 
+    private void ToggleRowSelection(int row)
+    {
+        if (row < 0 || row >= _messages.Count)
+            return;
+
+        var seqNum = _messages[row].SequenceNumber;
+        if (_selectedSequenceNumbers.Contains(seqNum))
+            _selectedSequenceNumbers.Remove(seqNum);
+        else
+            _selectedSequenceNumbers.Add(seqNum);
+
+        RefreshCheckboxDisplay();
+        UpdateRequeueButtonVisibility();
+    }
+
+    private void RefreshCheckboxDisplay()
+    {
+        // Update the checkbox column in the data table
+        if (!_isDeadLetterMode || _dataTable.Rows.Count == 0)
+            return;
+
+        for (var i = 0; i < _messages.Count && i < _dataTable.Rows.Count; i++)
+        {
+            var isSelected = _selectedSequenceNumbers.Contains(_messages[i].SequenceNumber);
+            _dataTable.Rows[i].Values[0] = isSelected ? "☑" : "☐";
+        }
+        _tableView.SetNeedsDraw();
+    }
+
     public IReadOnlyList<PeekedMessage> GetSelectedMessages()
     {
-        return _messages.Where(m => _selectedSequenceNumbers.Contains(m.SequenceNumber)).ToList();
+        return _messages
+            .Where(msg => _selectedSequenceNumbers.Contains(msg.SequenceNumber))
+            .ToList();
     }
 
     public void ClearSelection()
     {
         _selectedSequenceNumbers.Clear();
-        UpdateSelectionDisplay();
+        RefreshCheckboxDisplay();
+        UpdateRequeueButtonVisibility();
+    }
+
+    private int GetSelectedCount()
+    {
+        return _selectedSequenceNumbers.Count;
     }
 
     private void UpdateRequeueButtonVisibility()
     {
-        _requeueButton.Visible = _isDeadLetterMode && _selectedSequenceNumbers.Count > 0;
+        var selectedCount = GetSelectedCount();
+        var hasSelection = selectedCount > 0;
+        _requeueButton.Visible = _isDeadLetterMode && hasSelection;
+        _clearAllButton.Visible = _isDeadLetterMode && hasSelection;
+
         if (_requeueButton.Visible)
         {
-            _requeueButton.Text = $"Requeue {_selectedSequenceNumbers.Count} Selected";
+            _requeueButton.Text = $"Requeue {selectedCount} Selected";
         }
-    }
-
-    private void UpdateSelectionDisplay()
-    {
-        UpdateRequeueButtonVisibility();
-        RebuildTable();
-    }
-
-    private void RebuildTable()
-    {
-        SetMessages(_messages);
     }
 
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
@@ -193,9 +262,10 @@ public class MessageListView : FrameView
         _dataTable.Rows.Clear();
         _dataTable.Columns.Clear();
 
+        // Add checkbox column in DLQ mode
         if (_isDeadLetterMode)
         {
-            _dataTable.Columns.Add("☐", typeof(string));
+            _dataTable.Columns.Add("", typeof(string)); // Checkbox column
         }
         _dataTable.Columns.Add("#", typeof(long));
         _dataTable.Columns.Add("MessageId", typeof(string));

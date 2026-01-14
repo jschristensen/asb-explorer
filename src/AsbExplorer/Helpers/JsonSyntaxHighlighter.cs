@@ -49,7 +49,7 @@ public static class JsonSyntaxHighlighter
                     if (json[i] == '\\' && i + 1 < json.Length) i++; // Skip escaped char
                     i++;
                 }
-                i++; // Skip closing quote
+                if (i < json.Length) i++; // Skip closing quote if present
 
                 var text = json[start..i];
                 var tokenType = expectingKey ? JsonTokenType.Key : JsonTokenType.StringValue;
