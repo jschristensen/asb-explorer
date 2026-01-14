@@ -61,6 +61,7 @@ public class MessagePeekService : IAsyncDisposable
                 MessageId: m.MessageId,
                 SequenceNumber: m.SequenceNumber,
                 EnqueuedTime: m.EnqueuedTime,
+                Subject: m.Subject,
                 DeliveryCount: m.DeliveryCount,
                 ContentType: m.ContentType,
                 CorrelationId: m.CorrelationId,

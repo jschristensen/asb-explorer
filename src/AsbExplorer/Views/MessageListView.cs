@@ -19,8 +19,10 @@ public class MessageListView : FrameView
         TabStop = TabBehavior.TabGroup;
 
         _dataTable = new DataTable();
+        _dataTable.Columns.Add("#", typeof(long));
         _dataTable.Columns.Add("MessageId", typeof(string));
         _dataTable.Columns.Add("Enqueued", typeof(string));
+        _dataTable.Columns.Add("Subject", typeof(string));
         _dataTable.Columns.Add("Size", typeof(string));
         _dataTable.Columns.Add("Delivery", typeof(int));
         _dataTable.Columns.Add("ContentType", typeof(string));
@@ -74,13 +76,25 @@ public class MessageListView : FrameView
         foreach (var msg in messages)
         {
             _dataTable.Rows.Add(
+                msg.SequenceNumber,
                 DisplayHelpers.TruncateId(msg.MessageId, 12),
                 DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime),
+                msg.Subject ?? "-",
                 DisplayHelpers.FormatSize(msg.BodySizeBytes),
                 msg.DeliveryCount,
                 msg.ContentType ?? "-"
             );
         }
+
+        // Set column widths to fit content
+        _tableView.Style.ColumnStyles.Clear();
+        _tableView.Style.ColumnStyles.Add(0, new ColumnStyle { MinWidth = 3, MaxWidth = 12 });     // # (SequenceNumber)
+        _tableView.Style.ColumnStyles.Add(1, new ColumnStyle { MinWidth = 12, MaxWidth = 14 });   // MessageId
+        _tableView.Style.ColumnStyles.Add(2, new ColumnStyle { MinWidth = 10, MaxWidth = 12 });   // Enqueued
+        _tableView.Style.ColumnStyles.Add(3, new ColumnStyle { MinWidth = 10, MaxWidth = 30 });   // Subject
+        _tableView.Style.ColumnStyles.Add(4, new ColumnStyle { MinWidth = 6, MaxWidth = 8 });     // Size
+        _tableView.Style.ColumnStyles.Add(5, new ColumnStyle { MinWidth = 3, MaxWidth = 8 });     // Delivery
+        _tableView.Style.ExpandLastColumn = true;  // ContentType expands to fill
 
         _tableView.Table = new DataTableSource(_dataTable);
         _tableView.SetNeedsDraw();

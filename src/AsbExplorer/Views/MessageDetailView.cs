@@ -68,8 +68,8 @@ public class MessageDetailView : FrameView
 
         var bodyTab = new Tab { DisplayText = "Body", View = _bodyContainer };
 
-        _tabView.AddTab(propsTab, true);
-        _tabView.AddTab(bodyTab, false);
+        _tabView.AddTab(propsTab, false);
+        _tabView.AddTab(bodyTab, true);
 
         Add(_tabView);
 
@@ -99,6 +99,7 @@ public class MessageDetailView : FrameView
         _propsDataTable.Rows.Add("MessageId", message.MessageId);
         _propsDataTable.Rows.Add("SequenceNumber", message.SequenceNumber.ToString());
         _propsDataTable.Rows.Add("EnqueuedTime", message.EnqueuedTime.ToString("O"));
+        _propsDataTable.Rows.Add("Subject", message.Subject ?? "-");
         _propsDataTable.Rows.Add("DeliveryCount", message.DeliveryCount.ToString());
         _propsDataTable.Rows.Add("ContentType", message.ContentType ?? "-");
         _propsDataTable.Rows.Add("CorrelationId", message.CorrelationId ?? "-");
@@ -112,10 +113,24 @@ public class MessageDetailView : FrameView
         }
 
         _propsDataTable.Rows.Add("BodySize", $"{message.BodySizeBytes} bytes");
+
+        // Add specific application properties if present
+        var appProps = message.ApplicationProperties;
+        if (appProps.TryGetValue("Distributor", out var distributor))
+            _propsDataTable.Rows.Add("[App] Distributor", distributor?.ToString() ?? "null");
+        if (appProps.TryGetValue("Client", out var client))
+            _propsDataTable.Rows.Add("[App] Client", client?.ToString() ?? "null");
+        if (appProps.TryGetValue("MessageTypeAssemblyQualifiedName", out var msgType))
+            _propsDataTable.Rows.Add("[App] MessageType", msgType?.ToString() ?? "null");
+
         _propsDataTable.Rows.Add("", ""); // Separator
 
+        // Add remaining application properties
         foreach (var prop in message.ApplicationProperties)
         {
+            // Skip already-added properties
+            if (prop.Key is "Distributor" or "Client" or "MessageTypeAssemblyQualifiedName")
+                continue;
             _propsDataTable.Rows.Add($"[App] {prop.Key}", prop.Value?.ToString() ?? "null");
         }
 

@@ -4,6 +4,7 @@ public record PeekedMessage(
     string MessageId,
     long SequenceNumber,
     DateTimeOffset EnqueuedTime,
+    string? Subject,
     int DeliveryCount,
     string? ContentType,
     string? CorrelationId,

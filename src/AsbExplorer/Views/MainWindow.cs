@@ -108,6 +108,13 @@ public class MainWindow : Window
 
         // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
         Application.KeyDown += OnApplicationKeyDown;
+
+        // Dynamic panel sizing: 20/80 when Details is focused, 40/60 otherwise
+        // Only react to user-initiated focus changes via keyboard (M/D/E handled in OnApplicationKeyDown)
+        // and mouse clicks on the panels
+        _treePanel.MouseClick += (s, e) => SetMessageListHeight(40);
+        _messageList.MouseClick += (s, e) => SetMessageListHeight(40);
+        _messageDetail.MouseClick += (s, e) => SetMessageListHeight(20);
     }
 
     private void OnApplicationKeyDown(object? sender, Key key)
@@ -118,18 +125,21 @@ public class MainWindow : Window
         // Panel navigation: E/M/D (single letters, no modifiers) - global
         if (key.KeyCode == KeyCode.E && noMods)
         {
+            SetMessageListHeight(40);
             _treePanel.SetFocus();
             key.Handled = true;
             return;
         }
         if (key.KeyCode == KeyCode.M && noMods)
         {
+            SetMessageListHeight(40);
             _messageList.SetFocus();
             key.Handled = true;
             return;
         }
         if (key.KeyCode == KeyCode.D && noMods)
         {
+            SetMessageListHeight(20);
             _messageDetail.SetFocus();
             key.Handled = true;
             return;
@@ -160,6 +170,12 @@ public class MainWindow : Window
             current = current.SuperView;
         }
         return false;
+    }
+
+    private void SetMessageListHeight(int percent)
+    {
+        _messageList.Height = Dim.Percent(percent);
+        _messageList.SuperView?.SetNeedsDraw();
     }
 
     public StatusBar StatusBar => _statusBar;
