@@ -22,14 +22,14 @@ public class MessageDetailView : FrameView
         TabStop = TabBehavior.TabGroup;
         _formatter = formatter;
 
+        // CanFocus = false prevents TabView from stealing focus during data refresh
         _tabView = new TabView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            CanFocus = false
         };
 
         // Properties tab
@@ -73,14 +73,23 @@ public class MessageDetailView : FrameView
 
         Add(_tabView);
 
-        // Ensure TabView gets focus when this view is focused
+        // Forward focus to the selected tab's content (TabView itself is non-focusable)
         HasFocusChanged += (s, e) =>
         {
-            if (e.NewValue && !_tabView.HasFocus)
+            if (e.NewValue)
             {
-                _tabView.SetFocus();
+                FocusSelectedTabContent();
             }
         };
+    }
+
+    private void FocusSelectedTabContent()
+    {
+        var selectedTab = _tabView.SelectedTab;
+        if (selectedTab?.View != null && selectedTab.View.CanFocus)
+        {
+            selectedTab.View.SetFocus();
+        }
     }
 
     public void SwitchToTab(int index)
@@ -88,7 +97,27 @@ public class MessageDetailView : FrameView
         if (index >= 0 && index < _tabView.Tabs.Count())
         {
             _tabView.SelectedTab = _tabView.Tabs.ElementAt(index);
+            FocusSelectedTabContent();
         }
+    }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        // P/B to switch tabs (no modifiers)
+        if (!key.IsCtrl && !key.IsAlt && !key.IsShift)
+        {
+            if (key.KeyCode == KeyCode.P)
+            {
+                SwitchToTab(0);
+                return true;
+            }
+            if (key.KeyCode == KeyCode.B)
+            {
+                SwitchToTab(1);
+                return true;
+            }
+        }
+        return base.OnKeyDown(key);
     }
 
     public void SetMessage(PeekedMessage message)
@@ -150,7 +179,6 @@ public class MessageDetailView : FrameView
         });
 
         _propertiesTable.Table = new DataTableSource(_propsDataTable);
-        _propertiesTable.SetNeedsDraw();
 
         // Body
         var (content, format) = _formatter.Format(message.Body, message.ContentType);
@@ -214,8 +242,6 @@ public class MessageDetailView : FrameView
     {
         _propsDataTable.Rows.Clear();
         _propertiesTable.Table = new DataTableSource(_propsDataTable);
-        _propertiesTable.SetNeedsDraw();
-
         _bodyContainer.Clear();
     }
 }

@@ -112,7 +112,6 @@ public class MessageListView : FrameView
         _tableView.Style.ExpandLastColumn = true;  // ContentType expands to fill
 
         _tableView.Table = new DataTableSource(_dataTable);
-        _tableView.SetNeedsDraw();
     }
 
     public void Clear()
@@ -120,7 +119,6 @@ public class MessageListView : FrameView
         _messages = [];
         _dataTable.Rows.Clear();
         _tableView.Table = new DataTableSource(_dataTable);
-        _tableView.SetNeedsDraw();
     }
 
     public void SetAutoRefreshChecked(bool isChecked)

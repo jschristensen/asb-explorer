@@ -196,8 +196,11 @@ public class MainWindow : Window
         var focused = Application.Navigation?.GetFocused();
         if (focused == null) return false;
 
+        // Check if focused view is the detail panel itself
+        if (focused == _messageDetail) return true;
+
         // Walk up the parent chain to see if we're within _messageDetail
-        var current = focused;
+        var current = focused.SuperView;
         while (current != null)
         {
             if (current == _messageDetail) return true;
@@ -280,11 +283,11 @@ public class MainWindow : Window
     private async void OnNodeSelected(TreeNodeModel node)
     {
         _currentNode = node;
-        _messageList.Clear();
-        _messageDetail.Clear();
 
         if (!node.CanPeekMessages || node.ConnectionName is null)
         {
+            _messageList.Clear();
+            _messageDetail.Clear();
             return;
         }
 
