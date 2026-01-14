@@ -3,6 +3,7 @@ using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
 using AsbExplorer.Themes;
+using AsbExplorer.Helpers;
 
 namespace AsbExplorer.Views;
 
@@ -20,6 +21,12 @@ public class MainWindow : Window
     private readonly Shortcut _refreshShortcut;
     private readonly Shortcut _refreshAllShortcut;
     private readonly Label _refreshingLabel;
+
+    private System.Timers.Timer? _treeRefreshTimer;
+    private System.Timers.Timer? _messageListRefreshTimer;
+    private bool _isTreeRefreshing;
+    private bool _isMessageListRefreshing;
+    private bool _isModalOpen;
 
     private TreeNodeModel? _currentNode;
 
@@ -102,9 +109,35 @@ public class MainWindow : Window
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
         _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
-        _treePanel.RefreshStarted += () => _refreshingLabel.Visible = true;
-        _treePanel.RefreshCompleted += () => _refreshingLabel.Visible = false;
+        _treePanel.RefreshStarted += () =>
+        {
+            _isTreeRefreshing = true;
+            _refreshingLabel.Visible = true;
+        };
+        _treePanel.RefreshCompleted += () =>
+        {
+            _isTreeRefreshing = false;
+            _refreshingLabel.Visible = false;
+        };
         _messageList.MessageSelected += OnMessageSelected;
+
+        // Initialize auto-refresh states from settings
+        _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
+        _messageList.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshMessageList);
+
+        // Wire auto-refresh toggle events
+        _treePanel.AutoRefreshTreeCountsToggled += OnTreeAutoRefreshToggled;
+        _messageList.AutoRefreshToggled += OnMessageListAutoRefreshToggled;
+
+        // Start timers if enabled
+        if (_settingsStore.Settings.AutoRefreshTreeCounts)
+        {
+            StartTreeRefreshTimer();
+        }
+        if (_settingsStore.Settings.AutoRefreshMessageList)
+        {
+            StartMessageListRefreshTimer();
+        }
 
         // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
         Application.KeyDown += OnApplicationKeyDown;
@@ -220,8 +253,10 @@ public class MainWindow : Window
 
     private void ShowAddConnectionDialog()
     {
+        _isModalOpen = true;
         var dialog = new AddConnectionDialog();
         Application.Run(dialog);
+        _isModalOpen = false;
 
         if (dialog.Confirmed && dialog.ConnectionName is not null && dialog.ConnectionString is not null)
         {
@@ -292,6 +327,87 @@ public class MainWindow : Window
         }
     }
 
+    private void OnTreeAutoRefreshToggled(bool enabled)
+    {
+        _ = Task.Run(async () =>
+        {
+            await _settingsStore.SetAutoRefreshTreeCountsAsync(enabled);
+        });
+
+        if (enabled)
+        {
+            StartTreeRefreshTimer();
+        }
+        else
+        {
+            StopTreeRefreshTimer();
+        }
+    }
+
+    private void OnMessageListAutoRefreshToggled(bool enabled)
+    {
+        _ = Task.Run(async () =>
+        {
+            await _settingsStore.SetAutoRefreshMessageListAsync(enabled);
+        });
+
+        if (enabled)
+        {
+            StartMessageListRefreshTimer();
+        }
+        else
+        {
+            StopMessageListRefreshTimer();
+        }
+    }
+
+    private void StartTreeRefreshTimer()
+    {
+        _treeRefreshTimer?.Dispose();
+        _treeRefreshTimer = new System.Timers.Timer(_settingsStore.Settings.AutoRefreshIntervalSeconds * 1000);
+        _treeRefreshTimer.Elapsed += (s, e) =>
+        {
+            if (AutoRefreshStateHelper.ShouldRefreshTreeCounts(_isTreeRefreshing, _isModalOpen))
+            {
+                Application.Invoke(() => _treePanel.RefreshAllCounts());
+            }
+        };
+        _treeRefreshTimer.Start();
+    }
+
+    private void StopTreeRefreshTimer()
+    {
+        _treeRefreshTimer?.Stop();
+        _treeRefreshTimer?.Dispose();
+        _treeRefreshTimer = null;
+    }
+
+    private void StartMessageListRefreshTimer()
+    {
+        _messageListRefreshTimer?.Dispose();
+        _messageListRefreshTimer = new System.Timers.Timer(_settingsStore.Settings.AutoRefreshIntervalSeconds * 1000);
+        _messageListRefreshTimer.Elapsed += (s, e) =>
+        {
+            if (AutoRefreshStateHelper.ShouldRefreshMessageList(_currentNode, _isMessageListRefreshing, _isModalOpen))
+            {
+                _isMessageListRefreshing = true;
+                Application.Invoke(() =>
+                {
+                    RefreshCurrentNode();
+                    _isMessageListRefreshing = false;
+                });
+            }
+        };
+        _messageListRefreshTimer.Start();
+    }
+
+    private void StopMessageListRefreshTimer()
+    {
+        _messageListRefreshTimer?.Stop();
+        _messageListRefreshTimer?.Dispose();
+        _messageListRefreshTimer = null;
+    }
+
     private async Task ToggleFavoriteAsync()
     {
         if (_currentNode is null ||
@@ -347,8 +463,10 @@ public class MainWindow : Window
 
     private void ShowShortcutsDialog()
     {
+        _isModalOpen = true;
         var dialog = new ShortcutsDialog();
         Application.Run(dialog);
+        _isModalOpen = false;
     }
 
     protected override bool OnKeyDown(Key key)
@@ -367,6 +485,8 @@ public class MainWindow : Window
         if (disposing)
         {
             Application.KeyDown -= OnApplicationKeyDown;
+            StopTreeRefreshTimer();
+            StopMessageListRefreshTimer();
         }
         base.Dispose(disposing);
     }
