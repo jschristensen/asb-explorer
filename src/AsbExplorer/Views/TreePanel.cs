@@ -157,6 +157,15 @@ public class TreePanel : FrameView
     public void SetAutoRefreshChecked(bool isChecked)
     {
         _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
+        if (!isChecked)
+        {
+            _autoRefreshCheckbox.Text = "Auto-refresh counts";
+        }
+    }
+
+    public void UpdateAutoRefreshCountdown(int secondsRemaining)
+    {
+        _autoRefreshCheckbox.Text = $"Auto-refresh counts ({secondsRemaining}s)";
     }
 
     private async Task RefreshAllCountsAsync()

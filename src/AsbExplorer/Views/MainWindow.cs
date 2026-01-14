@@ -23,6 +23,9 @@ public class MainWindow : Window
 
     private System.Timers.Timer? _treeRefreshTimer;
     private System.Timers.Timer? _messageListRefreshTimer;
+    private System.Timers.Timer? _countdownDisplayTimer;
+    private int _treeCountdown;
+    private int _messageListCountdown;
     private bool _isTreeRefreshing;
     private bool _isMessageListRefreshing;
     private bool _isModalOpen;
@@ -373,16 +376,20 @@ public class MainWindow : Window
 
     private void StartTreeRefreshTimer()
     {
+        var interval = _settingsStore.Settings.AutoRefreshIntervalSeconds;
+        _treeCountdown = interval;
         _treeRefreshTimer?.Dispose();
-        _treeRefreshTimer = new System.Timers.Timer(_settingsStore.Settings.AutoRefreshIntervalSeconds * 1000);
+        _treeRefreshTimer = new System.Timers.Timer(interval * 1000);
         _treeRefreshTimer.Elapsed += (s, e) =>
         {
+            _treeCountdown = interval;
             if (AutoRefreshStateHelper.ShouldRefreshTreeCounts(_isTreeRefreshing, _isModalOpen))
             {
                 Application.Invoke(() => _treePanel.RefreshAllCounts());
             }
         };
         _treeRefreshTimer.Start();
+        StartCountdownDisplayTimer();
     }
 
     private void StopTreeRefreshTimer()
@@ -390,14 +397,18 @@ public class MainWindow : Window
         _treeRefreshTimer?.Stop();
         _treeRefreshTimer?.Dispose();
         _treeRefreshTimer = null;
+        UpdateCountdownDisplayTimer();
     }
 
     private void StartMessageListRefreshTimer()
     {
+        var interval = _settingsStore.Settings.AutoRefreshIntervalSeconds;
+        _messageListCountdown = interval;
         _messageListRefreshTimer?.Dispose();
-        _messageListRefreshTimer = new System.Timers.Timer(_settingsStore.Settings.AutoRefreshIntervalSeconds * 1000);
+        _messageListRefreshTimer = new System.Timers.Timer(interval * 1000);
         _messageListRefreshTimer.Elapsed += (s, e) =>
         {
+            _messageListCountdown = interval;
             if (AutoRefreshStateHelper.ShouldRefreshMessageList(_currentNode, _isMessageListRefreshing, _isModalOpen))
             {
                 _isMessageListRefreshing = true;
@@ -409,6 +420,7 @@ public class MainWindow : Window
             }
         };
         _messageListRefreshTimer.Start();
+        StartCountdownDisplayTimer();
     }
 
     private void StopMessageListRefreshTimer()
@@ -416,6 +428,39 @@ public class MainWindow : Window
         _messageListRefreshTimer?.Stop();
         _messageListRefreshTimer?.Dispose();
         _messageListRefreshTimer = null;
+        UpdateCountdownDisplayTimer();
+    }
+
+    private void StartCountdownDisplayTimer()
+    {
+        if (_countdownDisplayTimer != null) return;
+
+        _countdownDisplayTimer = new System.Timers.Timer(1000);
+        _countdownDisplayTimer.Elapsed += (s, e) =>
+        {
+            if (_treeRefreshTimer != null)
+            {
+                _treeCountdown = Math.Max(0, _treeCountdown - 1);
+                Application.Invoke(() => _treePanel.UpdateAutoRefreshCountdown(_treeCountdown));
+            }
+            if (_messageListRefreshTimer != null)
+            {
+                _messageListCountdown = Math.Max(0, _messageListCountdown - 1);
+                Application.Invoke(() => _messageList.UpdateAutoRefreshCountdown(_messageListCountdown));
+            }
+        };
+        _countdownDisplayTimer.Start();
+    }
+
+    private void UpdateCountdownDisplayTimer()
+    {
+        // Stop the countdown display timer if no refresh timers are active
+        if (_treeRefreshTimer == null && _messageListRefreshTimer == null)
+        {
+            _countdownDisplayTimer?.Stop();
+            _countdownDisplayTimer?.Dispose();
+            _countdownDisplayTimer = null;
+        }
     }
 
     private async Task ToggleFavoriteAsync()
@@ -497,6 +542,8 @@ public class MainWindow : Window
             Application.KeyDown -= OnApplicationKeyDown;
             StopTreeRefreshTimer();
             StopMessageListRefreshTimer();
+            _countdownDisplayTimer?.Stop();
+            _countdownDisplayTimer?.Dispose();
         }
         base.Dispose(disposing);
     }

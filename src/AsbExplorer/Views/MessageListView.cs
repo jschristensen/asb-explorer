@@ -126,6 +126,15 @@ public class MessageListView : FrameView
     public void SetAutoRefreshChecked(bool isChecked)
     {
         _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
+        if (!isChecked)
+        {
+            _autoRefreshCheckbox.Text = "Auto-refresh";
+        }
+    }
+
+    public void UpdateAutoRefreshCountdown(int secondsRemaining)
+    {
+        _autoRefreshCheckbox.Text = $"Auto-refresh ({secondsRemaining}s)";
     }
 }
 
