@@ -17,6 +17,9 @@ public class MessageFormatter
             return (FormatAsHex(body), "hex");
         }
 
+        // Strip BOM (Byte Order Mark) once - can appear in files saved with UTF-8 BOM encoding
+        text = text.TrimStart('\uFEFF');
+
         // Try JSON
         if (TryFormatJson(text, out var json))
         {
@@ -66,9 +69,7 @@ public class MessageFormatter
     private static bool TryFormatJson(string text, out string? formatted)
     {
         formatted = null;
-        // Strip BOM (\uFEFF) before processing
-        var withoutBom = text.TrimStart('\uFEFF');
-        var trimmed = withoutBom.TrimStart();
+        var trimmed = text.TrimStart();
 
         if (!trimmed.StartsWith('{') && !trimmed.StartsWith('['))
         {
@@ -77,7 +78,7 @@ public class MessageFormatter
 
         try
         {
-            using var doc = JsonDocument.Parse(withoutBom);
+            using var doc = JsonDocument.Parse(text);
             // Use Utf8JsonWriter for AOT-compatible pretty printing
             using var stream = new MemoryStream();
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
@@ -95,9 +96,7 @@ public class MessageFormatter
     private static bool TryFormatXml(string text, out string? formatted)
     {
         formatted = null;
-        // Strip BOM (\uFEFF) before processing
-        var withoutBom = text.TrimStart('\uFEFF');
-        var trimmed = withoutBom.TrimStart();
+        var trimmed = text.TrimStart();
 
         if (!trimmed.StartsWith('<'))
         {
@@ -107,7 +106,7 @@ public class MessageFormatter
         try
         {
             var doc = new XmlDocument();
-            doc.LoadXml(withoutBom);
+            doc.LoadXml(text);
 
             using var sw = new StringWriter();
             using var xw = new XmlTextWriter(sw)
