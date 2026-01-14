@@ -220,7 +220,7 @@ public class TreePanel : FrameView
         return new TreeNodeModel(
             Id: $"{parent.Id}:loading",
             DisplayName: "Loading...",
-            NodeType: TreeNodeType.Queue, // Use a type that can't have children
+            NodeType: TreeNodeType.Placeholder,
             ConnectionName: parent.ConnectionName
         );
     }
@@ -280,7 +280,7 @@ public class TreePanel : FrameView
             var errorNode = new TreeNodeModel(
                 Id: $"{node.Id}:error",
                 DisplayName: $"Error: {displayMessage}",
-                NodeType: TreeNodeType.Queue, // Leaf node
+                NodeType: TreeNodeType.Placeholder,
                 ConnectionName: node.ConnectionName
             );
             _childrenCache[node.Id] = [errorNode];

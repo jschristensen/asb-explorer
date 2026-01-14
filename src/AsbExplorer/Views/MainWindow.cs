@@ -103,6 +103,61 @@ public class MainWindow : Window
         _treePanel.RefreshStarted += () => _refreshingLabel.Visible = true;
         _treePanel.RefreshCompleted += () => _refreshingLabel.Visible = false;
         _messageList.MessageSelected += OnMessageSelected;
+
+        // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
+        Application.KeyDown += OnApplicationKeyDown;
+    }
+
+    private void OnApplicationKeyDown(object? sender, Key key)
+    {
+        // Skip if modifiers are held (except shift for ?)
+        var noMods = !key.IsCtrl && !key.IsAlt && !key.IsShift;
+
+        // Panel navigation: E/M/D (single letters, no modifiers) - global
+        if (key.KeyCode == KeyCode.E && noMods)
+        {
+            _treePanel.SetFocus();
+            key.Handled = true;
+            return;
+        }
+        if (key.KeyCode == KeyCode.M && noMods)
+        {
+            _messageList.SetFocus();
+            key.Handled = true;
+            return;
+        }
+        if (key.KeyCode == KeyCode.D && noMods)
+        {
+            _messageDetail.SetFocus();
+            key.Handled = true;
+            return;
+        }
+
+        // Tab switching: P/B - only when focus is within Details panel
+        if ((key.KeyCode == KeyCode.P || key.KeyCode == KeyCode.B) && noMods)
+        {
+            if (IsFocusWithinMessageDetail())
+            {
+                _messageDetail.SwitchToTab(key.KeyCode == KeyCode.P ? 0 : 1);
+                key.Handled = true;
+                return;
+            }
+        }
+    }
+
+    private bool IsFocusWithinMessageDetail()
+    {
+        var focused = Application.Navigation?.GetFocused();
+        if (focused == null) return false;
+
+        // Walk up the parent chain to see if we're within _messageDetail
+        var current = focused;
+        while (current != null)
+        {
+            if (current == _messageDetail) return true;
+            current = current.SuperView;
+        }
+        return false;
     }
 
     public StatusBar StatusBar => _statusBar;
@@ -280,29 +335,21 @@ public class MainWindow : Window
 
     protected override bool OnKeyDown(Key key)
     {
-        // Panel navigation: Ctrl+Shift+E/M/D
-        if (key == Key.E.WithCtrl.WithShift)
-        {
-            _treePanel.SetFocus();
-            return true;
-        }
-        if (key == Key.M.WithCtrl.WithShift)
-        {
-            _messageList.SetFocus();
-            return true;
-        }
-        if (key == Key.D.WithCtrl.WithShift)
-        {
-            _messageDetail.SetFocus();
-            return true;
-        }
-
-        // Help
+        // Help (? requires shift, so check the rune)
         if (key.AsRune == new Rune('?'))
         {
             ShowShortcutsDialog();
             return true;
         }
         return base.OnKeyDown(key);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Application.KeyDown -= OnApplicationKeyDown;
+        }
+        base.Dispose(disposing);
     }
 }

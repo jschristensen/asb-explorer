@@ -10,5 +10,6 @@ public enum TreeNodeType
     QueueDeadLetter,
     Topic,
     TopicSubscription,
-    TopicSubscriptionDeadLetter
+    TopicSubscriptionDeadLetter,
+    Placeholder  // For loading/error states - can't have children, can't peek
 }

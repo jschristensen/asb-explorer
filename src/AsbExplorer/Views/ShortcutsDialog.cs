@@ -46,17 +46,19 @@ public class ShortcutsDialog : Dialog
         return """
             Global
             ─────────────────────────────────
-            Ctrl+Shift+E  Focus Explorer
-            Ctrl+Shift+M  Focus Messages
-            Ctrl+Shift+D  Focus Details
+            E             Focus Explorer
+            M             Focus Messages
+            D             Focus Details
             R             Refresh counts
             Shift+R       Refresh all counts
             ?             Show this help
             F2            Toggle theme
             Ctrl+Q        Quit
 
-            Details (JSON Body)
+            Details Panel
             ─────────────────────────────────
+            P             Properties tab
+            B             Body tab
             ↑/↓           Scroll line
             PgUp/PgDn     Scroll page
             Home/End      Jump to start/end

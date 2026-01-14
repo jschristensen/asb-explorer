@@ -83,6 +83,14 @@ public class MessageDetailView : FrameView
         };
     }
 
+    public void SwitchToTab(int index)
+    {
+        if (index >= 0 && index < _tabView.Tabs.Count())
+        {
+            _tabView.SelectedTab = _tabView.Tabs.ElementAt(index);
+        }
+    }
+
     public void SetMessage(PeekedMessage message)
     {
         // Properties
