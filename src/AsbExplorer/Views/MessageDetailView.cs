@@ -644,42 +644,10 @@ internal class JsonBodyView : View
 
     private void CopyToClipboard()
     {
-        if (string.IsNullOrEmpty(_rawContent))
-            return;
-
-        // Include debug info to help diagnose formatting issues
-        var firstChars = string.Join(",", _rawContent.Take(10).Select(c => $"0x{(int)c:X2}"));
-        var startsWithBrace = _rawContent.TrimStart().StartsWith('{');
-
-        // Try to parse AND serialize JSON (mimicking MessageFormatter.TryFormatJson)
-        string? parseError = null;
-        try
+        var content = GetFormattedContent();
+        if (!string.IsNullOrEmpty(content))
         {
-            var withoutBom = _rawContent.TrimStart('\uFEFF');
-            using var doc = System.Text.Json.JsonDocument.Parse(withoutBom);
-            using var stream = new System.IO.MemoryStream();
-            using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
-            doc.WriteTo(writer);
-            writer.Flush();
-            var serialized = System.Text.Encoding.UTF8.GetString(stream.ToArray());
-            parseError = $"Success! Serialized length: {serialized.Length}, has newlines: {serialized.Contains('\n')}";
+            Clipboard.TrySetClipboardData(content);
         }
-        catch (Exception ex)
-        {
-            parseError = $"FAILED: {ex.GetType().Name}: {ex.Message}";
-        }
-
-        var debugInfo = $"=== DEBUG INFO ===\n" +
-                        $"Auto-detected format: {_autoDetectedFormat}\n" +
-                        $"Selected format: {_selectedFormat}\n" +
-                        $"Raw content length: {_rawContent.Length}\n" +
-                        $"First 10 char codes: {firstChars}\n" +
-                        $"Starts with brace (after trim): {startsWithBrace}\n" +
-                        $"JSON parse result: {parseError}\n" +
-                        $"Formatted has newlines: {_formattedContent.Contains('\n')}\n" +
-                        $"Document lines: {_currentDocument?.GetVisibleLines().Count ?? 0}\n" +
-                        $"=== RAW CONTENT ===\n{_rawContent}";
-
-        Clipboard.TrySetClipboardData(debugInfo);
     }
 }
