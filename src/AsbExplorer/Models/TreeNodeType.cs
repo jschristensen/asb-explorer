@@ -11,5 +11,7 @@ public enum TreeNodeType
     Topic,
     TopicSubscription,
     TopicSubscriptionDeadLetter,
+    QueuesFolder,
+    TopicsFolder,
     Placeholder  // For loading/error states - can't have children, can't peek
 }
