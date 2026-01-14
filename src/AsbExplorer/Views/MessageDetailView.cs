@@ -44,7 +44,8 @@ public class MessageDetailView : FrameView
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             Table = new DataTableSource(_propsDataTable),
-            FullRowSelect = true
+            FullRowSelect = true,
+            MultiSelect = false
         };
 
         // Value column expands to fill remaining space
@@ -130,7 +131,25 @@ public class MessageDetailView : FrameView
 
         // Body
         var (content, format) = _formatter.Format(message.Body, message.ContentType);
-        _bodyContainer.SetContent(content, format);
+        var rawContent = TryGetRawText(message.Body) ?? content;
+        _bodyContainer.SetContent(content, format, rawContent);
+    }
+
+    private static string? TryGetRawText(BinaryData body)
+    {
+        try
+        {
+            var bytes = body.ToArray();
+            var text = System.Text.Encoding.UTF8.GetString(bytes);
+            // Check for invalid UTF-8 sequences
+            if (text.Contains('\uFFFD'))
+                return null;
+            return text;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void OnCellActivated(object? sender, CellActivatedEventArgs e)
@@ -185,9 +204,12 @@ internal class JsonBodyView : View
 {
     private readonly SettingsStore _settingsStore;
     private FoldableJsonDocument? _currentDocument;
-    private string _currentFormat = "";
-    private string _currentContent = "";
+    private string _autoDetectedFormat = "";
+    private string _selectedFormat = "";
+    private string _rawContent = "";           // Original unformatted content
+    private string _formattedContent = "";     // Content formatted for display
     private int _scrollOffset;
+    private static readonly string[] AvailableFormats = ["TEXT", "JSON", "XML"];
 
     public JsonBodyView(SettingsStore settingsStore)
     {
@@ -196,36 +218,125 @@ internal class JsonBodyView : View
         MouseEvent += OnMouseEvent;
     }
 
-    public void SetContent(string content, string format)
+    public void SetContent(string content, string format, string rawContent)
     {
-        _currentFormat = format;
-        _currentContent = content;
+        _autoDetectedFormat = format;
+        _rawContent = rawContent;
+        _formattedContent = content;
         _scrollOffset = 0;
 
-        if (format == "json")
+        // Default to JSON format - user can switch to TEXT if needed
+        _selectedFormat = "json";
+        ApplyFormat();
+        SetNeedsDraw();
+    }
+
+    private void ApplyFormat()
+    {
+        // Determine content to display based on selected format
+        var contentToDisplay = GetFormattedContent();
+
+        if (_selectedFormat == "json")
         {
-            _currentDocument = new FoldableJsonDocument(content);
+            _currentDocument = new FoldableJsonDocument(contentToDisplay);
         }
         else
         {
             _currentDocument = null;
+            _formattedContent = contentToDisplay;
+        }
+    }
+
+    private string GetFormattedContent()
+    {
+        if (_selectedFormat == "json")
+        {
+            // If already auto-detected as JSON, MessageFormatter already pretty-printed it
+            if (_autoDetectedFormat == "json")
+            {
+                return _formattedContent;
+            }
+            // Otherwise try to pretty-print the raw content
+            return TryPrettyPrintJson(_rawContent) ?? _rawContent;
         }
 
-        SetNeedsDraw();
+        if (_selectedFormat == "xml")
+        {
+            if (_autoDetectedFormat == "xml")
+            {
+                return _formattedContent;
+            }
+            return TryPrettyPrintXml(_rawContent) ?? _rawContent;
+        }
+
+        // TEXT format - just return raw
+        return _rawContent;
+    }
+
+    private static string? TryPrettyPrintJson(string text)
+    {
+        try
+        {
+            // Strip BOM and whitespace
+            var cleanText = text.TrimStart('\uFEFF').Trim();
+            if (string.IsNullOrEmpty(cleanText))
+                return null;
+
+            // Try to parse - let JsonDocument decide if it's valid
+            using var doc = System.Text.Json.JsonDocument.Parse(cleanText);
+            // Use Utf8JsonWriter for AOT-compatible pretty printing
+            using var stream = new System.IO.MemoryStream();
+            using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
+            doc.WriteTo(writer);
+            writer.Flush();
+            return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryPrettyPrintXml(string text)
+    {
+        try
+        {
+            var trimmed = text.TrimStart('\uFEFF').TrimStart();
+            if (!trimmed.StartsWith('<'))
+                return null;
+
+            var doc = new System.Xml.XmlDocument();
+            doc.LoadXml(text.TrimStart('\uFEFF'));
+
+            using var sw = new System.IO.StringWriter();
+            using var xw = new System.Xml.XmlTextWriter(sw)
+            {
+                Formatting = System.Xml.Formatting.Indented,
+                Indentation = 2
+            };
+            doc.WriteTo(xw);
+            return sw.ToString();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void Clear()
     {
         _currentDocument = null;
-        _currentFormat = "";
-        _currentContent = "";
+        _autoDetectedFormat = "";
+        _selectedFormat = "";
+        _rawContent = "";
+        _formattedContent = "";
         _scrollOffset = 0;
         SetNeedsDraw();
     }
 
     protected override bool OnDrawingContent()
     {
-        if (string.IsNullOrEmpty(_currentFormat))
+        if (string.IsNullOrEmpty(_selectedFormat))
         {
             return true;
         }
@@ -235,20 +346,16 @@ internal class JsonBodyView : View
         var bgColor = isDark ? new Color(0, 43, 54) : new Color(253, 246, 227);
         var fgColor = isDark ? new Color(131, 148, 150) : new Color(101, 123, 131);
 
-        // Draw format header
-        var headerAttr = new Attribute(SolarizedTheme.JsonColors[JsonTokenType.Punctuation], bgColor);
-        SetAttribute(headerAttr);
-        Move(0, 0);
-        AddStr($"[{_currentFormat.ToUpper()}]");
+        // Content starts at line 0 now (no header)
+        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
 
         if (_currentDocument != null)
         {
             // JSON with highlighting and folding
             var lines = _currentDocument.GetVisibleLines();
-            var contentHeight = Viewport.Height - 2; // Account for header + blank line
-            var y = 2; // Start after header + blank line
+            var y = 0;
 
-            for (var i = _scrollOffset; i < lines.Count && y < Viewport.Height; i++)
+            for (var i = _scrollOffset; i < lines.Count && y < contentHeight; i++)
             {
                 Move(0, y);
 
@@ -269,9 +376,9 @@ internal class JsonBodyView : View
             var plainAttr = new Attribute(fgColor, bgColor);
             SetAttribute(plainAttr);
 
-            var lines = _currentContent.Split('\n');
-            var y = 2;
-            for (var i = _scrollOffset; i < lines.Length && y < Viewport.Height; i++)
+            var lines = _formattedContent.Split('\n');
+            var y = 0;
+            for (var i = _scrollOffset; i < lines.Length && y < contentHeight; i++)
             {
                 Move(0, y);
                 AddStr(lines[i].TrimEnd('\r'));
@@ -279,15 +386,76 @@ internal class JsonBodyView : View
             }
         }
 
+        // Draw format selector in lower-left corner
+        DrawFormatSelector(bgColor);
+
         return true;
+    }
+
+    private const string CopyLabel = "[Copy]";
+
+    private void DrawFormatSelector(Color bgColor)
+    {
+        var lastLine = Viewport.Height - 1;
+        var formatLabel = $"[{_selectedFormat.ToUpper()}]";
+
+        // Use a distinct color to indicate it's clickable
+        var selectorColor = new Color(38, 139, 210); // Solarized blue
+        var selectorAttr = new Attribute(selectorColor, bgColor);
+
+        // Draw format selector on left
+        SetAttribute(selectorAttr);
+        Move(0, lastLine);
+        AddStr(formatLabel);
+
+        // Draw Copy button on right
+        var copyX = Viewport.Width - CopyLabel.Length;
+        if (copyX > formatLabel.Length + 2)
+        {
+            Move(copyX, lastLine);
+            AddStr(CopyLabel);
+        }
+    }
+
+    private bool IsPointInFormatSelector(int x, int y)
+    {
+        var lastLine = Viewport.Height - 1;
+        var formatLabel = $"[{_selectedFormat.ToUpper()}]";
+        return y == lastLine && x >= 0 && x < formatLabel.Length;
+    }
+
+    private bool IsPointInCopyButton(int x, int y)
+    {
+        var lastLine = Viewport.Height - 1;
+        var copyX = Viewport.Width - CopyLabel.Length;
+        return y == lastLine && x >= copyX && x < Viewport.Width;
     }
 
     private void OnMouseClick(object? sender, MouseEventArgs e)
     {
-        if (_currentDocument == null || e.Position.Y < 2) return;
+        // Check if click is on the format selector
+        if (IsPointInFormatSelector(e.Position.X, e.Position.Y))
+        {
+            ShowFormatMenu();
+            e.Handled = true;
+            return;
+        }
 
-        // Account for header and scroll offset
-        var lineIndex = e.Position.Y - 2 + _scrollOffset;
+        // Check if click is on the Copy button
+        if (IsPointInCopyButton(e.Position.X, e.Position.Y))
+        {
+            CopyToClipboard();
+            e.Handled = true;
+            return;
+        }
+
+        // Handle JSON folding
+        if (_currentDocument == null) return;
+
+        var contentHeight = Viewport.Height - 1;
+        if (e.Position.Y >= contentHeight) return; // Click on format selector line
+
+        var lineIndex = e.Position.Y + _scrollOffset;
         var lines = _currentDocument.GetVisibleLines();
 
         if (lineIndex >= 0 && lineIndex < lines.Count)
@@ -295,6 +463,53 @@ internal class JsonBodyView : View
             _currentDocument.ToggleFoldAt(lineIndex);
             SetNeedsDraw();
         }
+    }
+
+    private void ShowFormatMenu()
+    {
+        var dialog = new Dialog
+        {
+            Title = "Select Format",
+            Width = 16,
+            Height = AvailableFormats.Length + 4
+        };
+
+        var y = 0;
+        foreach (var format in AvailableFormats)
+        {
+            var fmt = format;
+            var isSelected = _selectedFormat.Equals(fmt, StringComparison.OrdinalIgnoreCase);
+            var prefix = isSelected ? "● " : "  ";
+
+            var button = new Button
+            {
+                X = 1,
+                Y = y,
+                Text = $"{prefix}{fmt}",
+                Width = 12,
+                NoPadding = true
+            };
+            button.Accepting += (s, e) =>
+            {
+                SelectFormat(fmt);
+                Application.RequestStop();
+            };
+            dialog.Add(button);
+            y++;
+        }
+
+        Application.Run(dialog);
+    }
+
+    private void SelectFormat(string format)
+    {
+        if (_selectedFormat.Equals(format, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _selectedFormat = format.ToLower();
+        _scrollOffset = 0;
+        ApplyFormat();
+        SetNeedsDraw();
     }
 
     private void OnMouseEvent(object? sender, MouseEventArgs e)
@@ -313,6 +528,14 @@ internal class JsonBodyView : View
 
     protected override bool OnKeyDown(Key key)
     {
+        // Ctrl+C to copy raw content to clipboard
+        if (key.KeyCode == KeyCode.C && key.IsCtrl)
+        {
+            CopyToClipboard();
+            return true;
+        }
+
+        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
         switch (key.KeyCode)
         {
             case KeyCode.CursorDown:
@@ -322,10 +545,10 @@ internal class JsonBodyView : View
                 ScrollUp(1);
                 return true;
             case KeyCode.PageDown:
-                ScrollDown(Math.Max(1, Viewport.Height - 3));
+                ScrollDown(Math.Max(1, contentHeight - 1));
                 return true;
             case KeyCode.PageUp:
-                ScrollUp(Math.Max(1, Viewport.Height - 3));
+                ScrollUp(Math.Max(1, contentHeight - 1));
                 return true;
             case KeyCode.Home:
                 _scrollOffset = 0;
@@ -341,7 +564,8 @@ internal class JsonBodyView : View
     private void ScrollDown(int lines)
     {
         var totalLines = GetTotalLines();
-        var maxOffset = Math.Max(0, totalLines - (Viewport.Height - 2));
+        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
+        var maxOffset = Math.Max(0, totalLines - contentHeight);
         _scrollOffset = Math.Min(_scrollOffset + lines, maxOffset);
         SetNeedsDraw();
     }
@@ -355,7 +579,8 @@ internal class JsonBodyView : View
     private void ScrollToEnd()
     {
         var totalLines = GetTotalLines();
-        _scrollOffset = Math.Max(0, totalLines - (Viewport.Height - 2));
+        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
+        _scrollOffset = Math.Max(0, totalLines - contentHeight);
         SetNeedsDraw();
     }
 
@@ -365,6 +590,47 @@ internal class JsonBodyView : View
         {
             return _currentDocument.GetVisibleLines().Count;
         }
-        return _currentContent.Split('\n').Length;
+        return _formattedContent.Split('\n').Length;
+    }
+
+    private void CopyToClipboard()
+    {
+        if (string.IsNullOrEmpty(_rawContent))
+            return;
+
+        // Include debug info to help diagnose formatting issues
+        var firstChars = string.Join(",", _rawContent.Take(10).Select(c => $"0x{(int)c:X2}"));
+        var startsWithBrace = _rawContent.TrimStart().StartsWith('{');
+
+        // Try to parse AND serialize JSON (mimicking MessageFormatter.TryFormatJson)
+        string? parseError = null;
+        try
+        {
+            var withoutBom = _rawContent.TrimStart('\uFEFF');
+            using var doc = System.Text.Json.JsonDocument.Parse(withoutBom);
+            using var stream = new System.IO.MemoryStream();
+            using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
+            doc.WriteTo(writer);
+            writer.Flush();
+            var serialized = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+            parseError = $"Success! Serialized length: {serialized.Length}, has newlines: {serialized.Contains('\n')}";
+        }
+        catch (Exception ex)
+        {
+            parseError = $"FAILED: {ex.GetType().Name}: {ex.Message}";
+        }
+
+        var debugInfo = $"=== DEBUG INFO ===\n" +
+                        $"Auto-detected format: {_autoDetectedFormat}\n" +
+                        $"Selected format: {_selectedFormat}\n" +
+                        $"Raw content length: {_rawContent.Length}\n" +
+                        $"First 10 char codes: {firstChars}\n" +
+                        $"Starts with brace (after trim): {startsWithBrace}\n" +
+                        $"JSON parse result: {parseError}\n" +
+                        $"Formatted has newlines: {_formattedContent.Contains('\n')}\n" +
+                        $"Document lines: {_currentDocument?.GetVisibleLines().Count ?? 0}\n" +
+                        $"=== RAW CONTENT ===\n{_rawContent}";
+
+        Clipboard.TrySetClipboardData(debugInfo);
     }
 }

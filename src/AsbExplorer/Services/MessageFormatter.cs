@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Xml;
@@ -65,7 +66,9 @@ public class MessageFormatter
     private static bool TryFormatJson(string text, out string? formatted)
     {
         formatted = null;
-        var trimmed = text.TrimStart();
+        // Strip BOM (\uFEFF) before processing
+        var withoutBom = text.TrimStart('\uFEFF');
+        var trimmed = withoutBom.TrimStart();
 
         if (!trimmed.StartsWith('{') && !trimmed.StartsWith('['))
         {
@@ -74,11 +77,13 @@ public class MessageFormatter
 
         try
         {
-            using var doc = JsonDocument.Parse(text);
-            formatted = JsonSerializer.Serialize(doc, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            using var doc = JsonDocument.Parse(withoutBom);
+            // Use Utf8JsonWriter for AOT-compatible pretty printing
+            using var stream = new MemoryStream();
+            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+            doc.WriteTo(writer);
+            writer.Flush();
+            formatted = Encoding.UTF8.GetString(stream.ToArray());
             return true;
         }
         catch
@@ -90,7 +95,9 @@ public class MessageFormatter
     private static bool TryFormatXml(string text, out string? formatted)
     {
         formatted = null;
-        var trimmed = text.TrimStart();
+        // Strip BOM (\uFEFF) before processing
+        var withoutBom = text.TrimStart('\uFEFF');
+        var trimmed = withoutBom.TrimStart();
 
         if (!trimmed.StartsWith('<'))
         {
@@ -100,7 +107,7 @@ public class MessageFormatter
         try
         {
             var doc = new XmlDocument();
-            doc.LoadXml(text);
+            doc.LoadXml(withoutBom);
 
             using var sw = new StringWriter();
             using var xw = new XmlTextWriter(sw)

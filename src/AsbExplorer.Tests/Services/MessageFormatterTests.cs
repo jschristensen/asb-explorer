@@ -96,4 +96,71 @@ public class MessageFormatterTests
         Assert.Equal("json", format);
         Assert.Contains("1", content);
     }
+
+    [Fact]
+    public void Format_JsonWithBom_ReturnsJson()
+    {
+        // UTF-8 BOM followed by JSON
+        var jsonWithBom = "\uFEFF{\"name\":\"test\"}";
+        var body = BinaryData.FromString(jsonWithBom);
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("\"name\"", content);
+    }
+
+    [Fact]
+    public void Format_JsonWithUtf8BomBytes_ReturnsJson()
+    {
+        // UTF-8 BOM as raw bytes: EF BB BF
+        var bomBytes = new byte[] { 0xEF, 0xBB, 0xBF };
+        var jsonBytes = System.Text.Encoding.UTF8.GetBytes("{\"name\":\"test\"}");
+        var combined = bomBytes.Concat(jsonBytes).ToArray();
+        var body = BinaryData.FromBytes(combined);
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("\"name\"", content);
+    }
+
+    [Fact]
+    public void Format_ValidJson_PrettyPrintsWithNewlines()
+    {
+        var body = BinaryData.FromString("{\"name\":\"test\",\"value\":42}");
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("\n", content); // Should have newlines from pretty printing
+        Assert.Contains("  ", content); // Should have indentation
+    }
+
+    [Fact]
+    public void Format_JsonWithBom_PrettyPrintsWithNewlines()
+    {
+        var jsonWithBom = "\uFEFF{\"name\":\"test\",\"value\":42}";
+        var body = BinaryData.FromString(jsonWithBom);
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("\n", content); // Should have newlines from pretty printing
+    }
+
+    [Fact]
+    public void Format_RealWorldJson_PrettyPrintsWithNewlines()
+    {
+        // Real message content from user
+        var json = "{\"recipients\":[\"da9m@kk.dk\"],\"subject\":\"\",\"body\":\"Davs\\n\\nb7f4f7b8-ccc3-4af3-9a5a-1224891d405d\",\"omitStandardTemplate\":false,\"billeder\":[],\"dokumenter\":[]}";
+        var body = BinaryData.FromString(json);
+
+        var (content, format) = _formatter.Format(body, null);
+
+        Assert.Equal("json", format);
+        Assert.Contains("\n", content); // Should have newlines from pretty printing
+        Assert.Contains("  ", content); // Should have indentation
+        Assert.Contains("\"recipients\"", content);
+    }
 }
