@@ -1,3 +1,4 @@
+using System.Text;
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
@@ -56,7 +57,9 @@ public class MainWindow : Window
             X = Pos.Right(_treePanel),
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill()
+            Height = Dim.Fill(),
+            CanFocus = true,
+            TabStop = TabBehavior.TabGroup
         };
 
         // Message list (top 40% of right panel)
@@ -80,17 +83,18 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
-        // Status bar with theme toggle, refresh shortcuts, and refresh indicator
+        // Status bar with theme toggle, refresh shortcuts, help, and refresh indicator
         _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
         _refreshShortcut = new Shortcut(Key.R, "Refresh", () => _treePanel.RefreshSelectedNodeCounts());
         _refreshAllShortcut = new Shortcut(Key.R.WithShift, "Refresh All", () => _treePanel.RefreshAllCounts());
+        var shortcutsShortcut = new Shortcut(Key.Empty, "? Help", ShowShortcutsDialog);
         _refreshingLabel = new Label
         {
             Text = "Refreshing...",
             Visible = false,
             X = Pos.AnchorEnd(15)
         };
-        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut]);
+        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut, shortcutsShortcut]);
         _statusBar.Add(_refreshingLabel);
 
         // Wire up events
@@ -99,6 +103,61 @@ public class MainWindow : Window
         _treePanel.RefreshStarted += () => _refreshingLabel.Visible = true;
         _treePanel.RefreshCompleted += () => _refreshingLabel.Visible = false;
         _messageList.MessageSelected += OnMessageSelected;
+
+        // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
+        Application.KeyDown += OnApplicationKeyDown;
+    }
+
+    private void OnApplicationKeyDown(object? sender, Key key)
+    {
+        // Skip if modifiers are held (except shift for ?)
+        var noMods = !key.IsCtrl && !key.IsAlt && !key.IsShift;
+
+        // Panel navigation: E/M/D (single letters, no modifiers) - global
+        if (key.KeyCode == KeyCode.E && noMods)
+        {
+            _treePanel.SetFocus();
+            key.Handled = true;
+            return;
+        }
+        if (key.KeyCode == KeyCode.M && noMods)
+        {
+            _messageList.SetFocus();
+            key.Handled = true;
+            return;
+        }
+        if (key.KeyCode == KeyCode.D && noMods)
+        {
+            _messageDetail.SetFocus();
+            key.Handled = true;
+            return;
+        }
+
+        // Tab switching: P/B - only when focus is within Details panel
+        if ((key.KeyCode == KeyCode.P || key.KeyCode == KeyCode.B) && noMods)
+        {
+            if (IsFocusWithinMessageDetail())
+            {
+                _messageDetail.SwitchToTab(key.KeyCode == KeyCode.P ? 0 : 1);
+                key.Handled = true;
+                return;
+            }
+        }
+    }
+
+    private bool IsFocusWithinMessageDetail()
+    {
+        var focused = Application.Navigation?.GetFocused();
+        if (focused == null) return false;
+
+        // Walk up the parent chain to see if we're within _messageDetail
+        var current = focused;
+        while (current != null)
+        {
+            if (current == _messageDetail) return true;
+            current = current.SuperView;
+        }
+        return false;
     }
 
     public StatusBar StatusBar => _statusBar;
@@ -266,5 +325,31 @@ public class MainWindow : Window
         {
             MessageBox.ErrorQuery(title, ex.Message, "OK");
         });
+    }
+
+    private void ShowShortcutsDialog()
+    {
+        var dialog = new ShortcutsDialog();
+        Application.Run(dialog);
+    }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        // Help (? requires shift, so check the rune)
+        if (key.AsRune == new Rune('?'))
+        {
+            ShowShortcutsDialog();
+            return true;
+        }
+        return base.OnKeyDown(key);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Application.KeyDown -= OnApplicationKeyDown;
+        }
+        base.Dispose(disposing);
     }
 }

@@ -29,6 +29,8 @@ public class TreePanel : FrameView
         FavoritesStore favoritesStore)
     {
         Title = "Explorer";
+        CanFocus = true;
+        TabStop = TabBehavior.TabGroup;
         _connectionService = connectionService;
         _connectionStore = connectionStore;
         _favoritesStore = favoritesStore;
@@ -56,7 +58,9 @@ public class TreePanel : FrameView
                 GetChildren,
                 node => node.CanHaveChildren),
             AspectGetter = node => node.EffectiveDisplayName,
-            AllowLetterBasedNavigation = false
+            AllowLetterBasedNavigation = false,
+            CanFocus = true,
+            TabStop = TabBehavior.TabStop
         };
 
         _treeView.SelectionChanged += (s, e) =>
@@ -68,6 +72,15 @@ public class TreePanel : FrameView
         };
 
         Add(addButton, _treeView);
+
+        // Ensure TreeView gets focus when this panel is focused
+        HasFocusChanged += (s, e) =>
+        {
+            if (e.NewValue && !_treeView.HasFocus)
+            {
+                _treeView.SetFocus();
+            }
+        };
     }
 
     public void LoadRootNodes()
@@ -94,6 +107,13 @@ public class TreePanel : FrameView
         foreach (var root in roots)
         {
             _treeView.AddObject(root);
+        }
+
+        // Expand Connections node by default
+        var connectionsNode = roots.FirstOrDefault(r => r.NodeType == TreeNodeType.ConnectionsRoot);
+        if (connectionsNode is not null)
+        {
+            _treeView.Expand(connectionsNode);
         }
 
         _treeView.SetNeedsDraw();
@@ -200,7 +220,7 @@ public class TreePanel : FrameView
         return new TreeNodeModel(
             Id: $"{parent.Id}:loading",
             DisplayName: "Loading...",
-            NodeType: TreeNodeType.Queue, // Use a type that can't have children
+            NodeType: TreeNodeType.Placeholder,
             ConnectionName: parent.ConnectionName
         );
     }
@@ -260,7 +280,7 @@ public class TreePanel : FrameView
             var errorNode = new TreeNodeModel(
                 Id: $"{node.Id}:error",
                 DisplayName: $"Error: {displayMessage}",
-                NodeType: TreeNodeType.Queue, // Leaf node
+                NodeType: TreeNodeType.Placeholder,
                 ConnectionName: node.ConnectionName
             );
             _childrenCache[node.Id] = [errorNode];
