@@ -19,7 +19,6 @@ public class MainWindow : Window
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
     private readonly Shortcut _refreshShortcut;
-    private readonly Shortcut _refreshAllShortcut;
     private readonly Label _refreshingLabel;
 
     private System.Timers.Timer? _treeRefreshTimer;
@@ -92,10 +91,9 @@ public class MainWindow : Window
         rightPanel.Add(_messageList, _messageDetail);
         Add(_treePanel, rightPanel);
 
-        // Status bar with theme toggle, refresh shortcuts, help, and refresh indicator
+        // Status bar with theme toggle, refresh shortcut, help, and refresh indicator
         _themeShortcut = new Shortcut(Key.F2, GetThemeStatusText(), ToggleTheme);
-        _refreshShortcut = new Shortcut(Key.R, "Refresh", () => _treePanel.RefreshSelectedNodeCounts());
-        _refreshAllShortcut = new Shortcut(Key.R.WithShift, "Refresh All", () => _treePanel.RefreshAllCounts());
+        _refreshShortcut = new Shortcut(Key.R, "Refresh", HandleRefreshKey);
         var shortcutsShortcut = new Shortcut(Key.Empty, "? Help", ShowShortcutsDialog);
         _refreshingLabel = new Label
         {
@@ -103,7 +101,7 @@ public class MainWindow : Window
             Visible = false,
             X = Pos.AnchorEnd(15)
         };
-        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, _refreshAllShortcut, shortcutsShortcut]);
+        _statusBar = new StatusBar([_themeShortcut, _refreshShortcut, shortcutsShortcut]);
         _statusBar.Add(_refreshingLabel);
 
         // Wire up events
@@ -324,6 +322,18 @@ public class MainWindow : Window
         if (_currentNode is not null)
         {
             OnNodeSelected(_currentNode);
+        }
+    }
+
+    private void HandleRefreshKey()
+    {
+        if (_messageList.HasFocus)
+        {
+            RefreshCurrentNode();
+        }
+        else if (_treePanel.HasFocus)
+        {
+            _treePanel.RefreshAllCounts();
         }
     }
 
