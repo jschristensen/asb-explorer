@@ -35,9 +35,9 @@ public class AppSettingsTests
     }
 
     [Fact]
-    public void AutoRefreshIntervalSeconds_DefaultsTo5()
+    public void AutoRefreshIntervalSeconds_DefaultsTo10()
     {
         var settings = new AppSettings();
-        Assert.Equal(5, settings.AutoRefreshIntervalSeconds);
+        Assert.Equal(10, settings.AutoRefreshIntervalSeconds);
     }
 }

@@ -394,7 +394,7 @@ public class TreePanel : FrameView
 
     private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
-        // First, mark all countable nodes as loading and show "(...)"
+        // Mark all countable nodes as loading (no visual change since we removed (...) display)
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
@@ -404,12 +404,6 @@ public class TreePanel : FrameView
                 nodes[i] = node with { IsLoadingCount = true, MessageCount = null };
             }
         }
-
-        Application.Invoke(() =>
-        {
-            _treeView.RefreshObject(parentNode);
-            _treeView.SetNeedsDraw();
-        });
 
         // Now fetch actual counts
         var tasks = nodes.Select(async node =>
@@ -451,8 +445,11 @@ public class TreePanel : FrameView
 
         Application.Invoke(() =>
         {
+            // Preserve focus during refresh to prevent stealing focus from other panels
+            var focused = Application.Navigation?.GetFocused();
             _treeView.RefreshObject(parentNode);
             _treeView.SetNeedsDraw();
+            focused?.SetFocus();
         });
     }
 
@@ -527,7 +524,12 @@ public class TreePanel : FrameView
             if (index >= 0)
             {
                 kvp.Value[index] = node with { MessageCount = count };
-                Application.Invoke(() => _treeView.SetNeedsDraw());
+                Application.Invoke(() =>
+                {
+                    var focused = Application.Navigation?.GetFocused();
+                    _treeView.SetNeedsDraw();
+                    focused?.SetFocus();
+                });
                 return;
             }
         }

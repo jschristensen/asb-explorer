@@ -17,7 +17,7 @@ public class TreeNodeModelTests
     }
 
     [Fact]
-    public void EffectiveDisplayName_WhenLoading_ReturnsNameWithEllipsis()
+    public void EffectiveDisplayName_WhenLoading_ReturnsNameOnly()
     {
         var node = new TreeNodeModel(
             Id: "test",
@@ -26,7 +26,7 @@ public class TreeNodeModelTests
             IsLoadingCount: true
         );
 
-        Assert.Equal("my-queue (...)", node.EffectiveDisplayName);
+        Assert.Equal("my-queue", node.EffectiveDisplayName);
     }
 
     [Fact]

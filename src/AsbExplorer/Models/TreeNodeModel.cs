@@ -35,7 +35,6 @@ public record TreeNodeModel(
         get
         {
             if (IsFolderNode) return DisplayName;
-            if (IsLoadingCount) return $"{DisplayName} (...)";
             if (MessageCount == -1) return $"{DisplayName} (?)";
             if (MessageCount.HasValue) return $"{DisplayName} ({MessageCount})";
             return DisplayName;
