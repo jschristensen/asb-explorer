@@ -187,6 +187,7 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
     {
         var message = new ServiceBusMessage(modifiedBody ?? original.Body)
         {
+            MessageId = original.MessageId,
             ContentType = original.ContentType,
             Subject = original.Subject,
             CorrelationId = original.CorrelationId,
@@ -198,6 +199,9 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         {
             message.ApplicationProperties[prop.Key] = prop.Value;
         }
+
+        // Store original DLQ sequence number for audit trail
+        message.ApplicationProperties["OriginalDlqSequenceNumber"] = original.SequenceNumber;
 
         return message;
     }
