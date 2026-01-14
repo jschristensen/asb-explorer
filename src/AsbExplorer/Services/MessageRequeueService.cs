@@ -214,37 +214,69 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         ServiceBusReceiver receiver,
         long sequenceNumber)
     {
-        // DLQ messages are not deferred, so we need to receive and find by sequence number
-        // Receive in batches and look for our message
-        var maxAttempts = 10;
-        var batchSize = 50;
+        // DLQ messages are not deferred, so we need to receive and find by sequence number.
+        // Collect messages without abandoning until we find the target to avoid
+        // re-receiving the same messages (abandoned messages go back to front of queue).
+        var receivedMessages = new List<ServiceBusReceivedMessage>();
+        ServiceBusReceivedMessage? targetMessage = null;
 
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        try
         {
-            var messages = await receiver.ReceiveMessagesAsync(batchSize, TimeSpan.FromSeconds(5));
+            var maxMessages = 500;
+            var batchSize = 50;
 
-            foreach (var msg in messages)
+            while (receivedMessages.Count < maxMessages)
             {
-                if (msg.SequenceNumber == sequenceNumber)
+                var messages = await receiver.ReceiveMessagesAsync(batchSize, TimeSpan.FromSeconds(2));
+
+                if (messages.Count == 0)
                 {
-                    await receiver.CompleteMessageAsync(msg);
-                    return new RequeueResult(true, null);
+                    // No more messages available
+                    break;
                 }
-                else
+
+                foreach (var msg in messages)
                 {
-                    // Not our message, abandon it so others can process
+                    if (msg.SequenceNumber == sequenceNumber)
+                    {
+                        targetMessage = msg;
+                    }
+                    else
+                    {
+                        receivedMessages.Add(msg);
+                    }
+                }
+
+                if (targetMessage is not null)
+                {
+                    break;
+                }
+            }
+
+            if (targetMessage is null)
+            {
+                return new RequeueResult(false, $"Message with sequence number {sequenceNumber} not found in DLQ");
+            }
+
+            // Complete the target message
+            await receiver.CompleteMessageAsync(targetMessage);
+            return new RequeueResult(true, null);
+        }
+        finally
+        {
+            // Abandon all non-target messages so they become available again
+            foreach (var msg in receivedMessages)
+            {
+                try
+                {
                     await receiver.AbandonMessageAsync(msg);
                 }
-            }
-
-            if (messages.Count < batchSize)
-            {
-                // No more messages
-                break;
+                catch
+                {
+                    // Ignore abandon failures - lock will expire eventually
+                }
             }
         }
-
-        return new RequeueResult(false, $"Message with sequence number {sequenceNumber} not found in DLQ");
     }
 
     private ServiceBusClient? GetOrCreateClient(string connectionName)

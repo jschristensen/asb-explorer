@@ -35,8 +35,7 @@ public class RequeueConfirmDialog : Dialog
         {
             Text = "Requeue",
             X = Pos.Center() - 12,
-            Y = 6,
-            IsDefault = true
+            Y = 6
         };
 
         requeueButton.Accepting += (s, e) =>

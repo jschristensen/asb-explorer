@@ -78,7 +78,16 @@ public class MessageListView : FrameView
         {
             if (e.Row >= 0 && e.Row < _messages.Count)
             {
-                MessageSelected?.Invoke(_messages[e.Row]);
+                if (_isDeadLetterMode)
+                {
+                    // In DLQ mode, Enter opens edit dialog
+                    EditMessageRequested?.Invoke(_messages[e.Row]);
+                }
+                else
+                {
+                    // In normal mode, Enter just selects
+                    MessageSelected?.Invoke(_messages[e.Row]);
+                }
             }
         };
 
@@ -107,13 +116,6 @@ public class MessageListView : FrameView
         if (!_isDeadLetterMode)
         {
             return base.OnKeyDown(key);
-        }
-
-        // Enter - edit single message
-        if (key.KeyCode == KeyCode.Enter && _tableView.SelectedRow >= 0 && _tableView.SelectedRow < _messages.Count)
-        {
-            EditMessageRequested?.Invoke(_messages[_tableView.SelectedRow]);
-            return true;
         }
 
         // Space - toggle selection
