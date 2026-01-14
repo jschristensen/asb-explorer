@@ -48,7 +48,8 @@ public class MainWindow : Window
             X = 0,
             Y = 0,
             Width = Dim.Percent(30),
-            Height = Dim.Fill()
+            Height = Dim.Fill(),
+            Arrangement = ViewArrangement.RightResizable
         };
 
         // Right panel container
@@ -68,7 +69,8 @@ public class MainWindow : Window
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Percent(40)
+            Height = Dim.Percent(40),
+            Arrangement = ViewArrangement.BottomResizable
         };
 
         // Message detail (bottom 60% of right panel)
