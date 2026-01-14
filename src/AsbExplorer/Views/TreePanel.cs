@@ -8,6 +8,7 @@ namespace AsbExplorer.Views;
 public class TreePanel : FrameView
 {
     private readonly TreeView<TreeNodeModel> _treeView;
+    private readonly CheckBox _autoRefreshCheckbox;
     private readonly ServiceBusConnectionService _connectionService;
     private readonly ConnectionStore _connectionStore;
     private readonly FavoritesStore _favoritesStore;
@@ -22,6 +23,7 @@ public class TreePanel : FrameView
     public event Action? AddConnectionClicked;
     public event Action? RefreshStarted;
     public event Action? RefreshCompleted;
+    public event Action<bool>? AutoRefreshTreeCountsToggled;
 
     public TreePanel(
         ServiceBusConnectionService connectionService,
@@ -48,10 +50,23 @@ public class TreePanel : FrameView
             AddConnectionClicked?.Invoke();
         };
 
+        _autoRefreshCheckbox = new CheckBox
+        {
+            Text = "Auto-refresh counts",
+            X = 0,
+            Y = Pos.Bottom(addButton),
+            CheckedState = CheckState.UnChecked
+        };
+
+        _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
+        {
+            AutoRefreshTreeCountsToggled?.Invoke(e.NewValue == CheckState.Checked);
+        };
+
         _treeView = new TreeView<TreeNodeModel>
         {
             X = 0,
-            Y = Pos.Bottom(addButton),
+            Y = Pos.Bottom(_autoRefreshCheckbox),
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(
@@ -71,7 +86,7 @@ public class TreePanel : FrameView
             }
         };
 
-        Add(addButton, _treeView);
+        Add(addButton, _autoRefreshCheckbox, _treeView);
 
         // Ensure TreeView gets focus when this panel is focused
         HasFocusChanged += (s, e) =>
@@ -137,6 +152,11 @@ public class TreePanel : FrameView
     public void RefreshAllCounts()
     {
         _ = RefreshAllCountsAsync();
+    }
+
+    public void SetAutoRefreshChecked(bool isChecked)
+    {
+        _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
     }
 
     private async Task RefreshAllCountsAsync()
