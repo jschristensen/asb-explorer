@@ -14,6 +14,7 @@ public class MessageListView : FrameView
     private readonly Button _clearAllButton;
     private bool _isDeadLetterMode;
     private readonly HashSet<long> _selectedSequenceNumbers = [];
+    private string? _currentEntityName;
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
@@ -34,6 +35,13 @@ public class MessageListView : FrameView
 
     public void SetEntityName(string? entityName)
     {
+        // Clear selection when switching to a different entity
+        if (entityName != _currentEntityName)
+        {
+            _selectedSequenceNumbers.Clear();
+            UpdateRequeueButtonVisibility();
+        }
+        _currentEntityName = entityName;
         Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
     }
 
