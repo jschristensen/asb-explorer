@@ -14,114 +14,39 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         _connectionStore = connectionStore;
     }
 
-    public async Task<RequeueResult> SendToQueueAsync(
+    public Task<RequeueResult> SendToQueueAsync(
         string connectionName,
         string queueName,
         PeekedMessage originalMessage,
         BinaryData? modifiedBody = null)
     {
-        try
-        {
-            var client = GetOrCreateClient(connectionName);
-            if (client is null)
-            {
-                return new RequeueResult(false, "Connection not found");
-            }
-
-            await using var sender = client.CreateSender(queueName);
-            var message = CreateServiceBusMessage(originalMessage, modifiedBody);
-            await sender.SendMessageAsync(message);
-
-            return new RequeueResult(true, null);
-        }
-        catch (Exception ex)
-        {
-            return new RequeueResult(false, ex.Message);
-        }
+        return SendToEntityAsync(connectionName, queueName, originalMessage, modifiedBody);
     }
 
-    public async Task<RequeueResult> SendToTopicAsync(
+    public Task<RequeueResult> SendToTopicAsync(
         string connectionName,
         string topicName,
         PeekedMessage originalMessage,
         BinaryData? modifiedBody = null)
     {
-        try
-        {
-            var client = GetOrCreateClient(connectionName);
-            if (client is null)
-            {
-                return new RequeueResult(false, "Connection not found");
-            }
-
-            await using var sender = client.CreateSender(topicName);
-            var message = CreateServiceBusMessage(originalMessage, modifiedBody);
-            await sender.SendMessageAsync(message);
-
-            return new RequeueResult(true, null);
-        }
-        catch (Exception ex)
-        {
-            return new RequeueResult(false, ex.Message);
-        }
+        return SendToEntityAsync(connectionName, topicName, originalMessage, modifiedBody);
     }
 
-    public async Task<RequeueResult> CompleteFromQueueDlqAsync(
+    public Task<RequeueResult> CompleteFromQueueDlqAsync(
         string connectionName,
         string queueName,
         long sequenceNumber)
     {
-        try
-        {
-            var client = GetOrCreateClient(connectionName);
-            if (client is null)
-            {
-                return new RequeueResult(false, "Connection not found");
-            }
-
-            var options = new ServiceBusReceiverOptions
-            {
-                SubQueue = SubQueue.DeadLetter,
-                ReceiveMode = ServiceBusReceiveMode.PeekLock
-            };
-
-            await using var receiver = client.CreateReceiver(queueName, options);
-            // DLQ messages are not deferred, so we receive by sequence number directly
-            return await CompleteBySequenceNumberAsync(receiver, sequenceNumber);
-        }
-        catch (Exception ex)
-        {
-            return new RequeueResult(false, ex.Message);
-        }
+        return CompleteFromDlqAsync(connectionName, sequenceNumber, client => client.CreateReceiver(queueName, DlqReceiverOptions));
     }
 
-    public async Task<RequeueResult> CompleteFromSubscriptionDlqAsync(
+    public Task<RequeueResult> CompleteFromSubscriptionDlqAsync(
         string connectionName,
         string topicName,
         string subscriptionName,
         long sequenceNumber)
     {
-        try
-        {
-            var client = GetOrCreateClient(connectionName);
-            if (client is null)
-            {
-                return new RequeueResult(false, "Connection not found");
-            }
-
-            var options = new ServiceBusReceiverOptions
-            {
-                SubQueue = SubQueue.DeadLetter,
-                ReceiveMode = ServiceBusReceiveMode.PeekLock
-            };
-
-            await using var receiver = client.CreateReceiver(topicName, subscriptionName, options);
-            return await CompleteBySequenceNumberAsync(receiver, sequenceNumber);
-        }
-        catch (Exception ex)
-        {
-            return new RequeueResult(false, ex.Message);
-        }
+        return CompleteFromDlqAsync(connectionName, sequenceNumber, client => client.CreateReceiver(topicName, subscriptionName, DlqReceiverOptions));
     }
 
     public async Task<BulkRequeueResult> RequeueMessagesAsync(
@@ -134,60 +59,95 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
     {
         var successCount = 0;
         var failures = new List<(long SequenceNumber, string Error)>();
-        var processed = 0;
 
-        foreach (var message in messages)
+        for (var i = 0; i < messages.Count; i++)
         {
-            onProgress?.Invoke(processed, messages.Count);
-            // Send to original entity
-            RequeueResult sendResult;
-            if (topicName is not null)
-            {
-                sendResult = await SendToTopicAsync(connectionName, topicName, message);
-            }
-            else
-            {
-                sendResult = await SendToQueueAsync(connectionName, entityPath, message);
-            }
+            onProgress?.Invoke(i, messages.Count);
+            var message = messages[i];
+
+            var targetEntity = topicName ?? entityPath;
+            var sendResult = await SendToEntityAsync(connectionName, targetEntity, message);
 
             if (!sendResult.Success)
             {
                 failures.Add((message.SequenceNumber, sendResult.ErrorMessage ?? "Unknown error"));
-                processed++;
                 continue;
             }
 
-            // Complete original if requested
             if (removeOriginals)
             {
-                RequeueResult completeResult;
-                if (topicName is not null)
-                {
-                    completeResult = await CompleteFromSubscriptionDlqAsync(
-                        connectionName, topicName, entityPath, message.SequenceNumber);
-                }
-                else
-                {
-                    completeResult = await CompleteFromQueueDlqAsync(
-                        connectionName, entityPath, message.SequenceNumber);
-                }
+                var completeResult = topicName is not null
+                    ? await CompleteFromSubscriptionDlqAsync(connectionName, topicName, entityPath, message.SequenceNumber)
+                    : await CompleteFromQueueDlqAsync(connectionName, entityPath, message.SequenceNumber);
 
+                // Message was sent but not removed - partial success
+                // Still count as success since message was requeued
                 if (!completeResult.Success)
                 {
-                    // Message was sent but not removed - partial success
-                    // Still count as success since message was requeued
                     successCount++;
-                    processed++;
                     continue;
                 }
             }
 
             successCount++;
-            processed++;
         }
 
         onProgress?.Invoke(messages.Count, messages.Count);
         return new BulkRequeueResult(successCount, failures.Count, failures);
+    }
+
+    private static ServiceBusReceiverOptions DlqReceiverOptions { get; } = new()
+    {
+        SubQueue = SubQueue.DeadLetter,
+        ReceiveMode = ServiceBusReceiveMode.PeekLock
+    };
+
+    private async Task<RequeueResult> SendToEntityAsync(
+        string connectionName,
+        string entityName,
+        PeekedMessage originalMessage,
+        BinaryData? modifiedBody = null)
+    {
+        try
+        {
+            var client = await GetOrCreateClientAsync(connectionName);
+            if (client is null)
+            {
+                return new RequeueResult(false, "Connection not found");
+            }
+
+            await using var sender = client.CreateSender(entityName);
+            var message = CreateServiceBusMessage(originalMessage, modifiedBody);
+            await sender.SendMessageAsync(message);
+
+            return new RequeueResult(true, null);
+        }
+        catch (Exception ex)
+        {
+            return new RequeueResult(false, ex.Message);
+        }
+    }
+
+    private async Task<RequeueResult> CompleteFromDlqAsync(
+        string connectionName,
+        long sequenceNumber,
+        Func<ServiceBusClient, ServiceBusReceiver> createReceiver)
+    {
+        try
+        {
+            var client = await GetOrCreateClientAsync(connectionName);
+            if (client is null)
+            {
+                return new RequeueResult(false, "Connection not found");
+            }
+
+            await using var receiver = createReceiver(client);
+            return await CompleteBySequenceNumberAsync(receiver, sequenceNumber);
+        }
+        catch (Exception ex)
+        {
+            return new RequeueResult(false, ex.Message);
+        }
     }
 
     private static ServiceBusMessage CreateServiceBusMessage(PeekedMessage original, BinaryData? modifiedBody)
@@ -225,8 +185,8 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
 
         try
         {
-            var maxMessages = 500;
-            var batchSize = 50;
+            const int maxMessages = 500;
+            const int batchSize = 50;
 
             while (receivedMessages.Count < maxMessages)
             {
@@ -234,7 +194,6 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
 
                 if (messages.Count == 0)
                 {
-                    // No more messages available
                     break;
                 }
 
@@ -261,13 +220,11 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
                 return new RequeueResult(false, $"Message with sequence number {sequenceNumber} not found in DLQ");
             }
 
-            // Complete the target message
             await receiver.CompleteMessageAsync(targetMessage);
             return new RequeueResult(true, null);
         }
         finally
         {
-            // Abandon all non-target messages so they become available again
             foreach (var msg in receivedMessages)
             {
                 try
@@ -282,11 +239,14 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         }
     }
 
-    private ServiceBusClient? GetOrCreateClient(string connectionName)
+    private async Task<ServiceBusClient?> GetOrCreateClientAsync(string connectionName)
     {
         if (_client is null || _currentConnectionName != connectionName)
         {
-            _client?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            if (_client is not null)
+            {
+                await _client.DisposeAsync();
+            }
 
             var connection = _connectionStore.GetByName(connectionName);
             if (connection is null)

@@ -31,20 +31,10 @@ public class ServiceBusConnectionService
 
         await foreach (var queue in adminClient.GetQueuesAsync())
         {
-            // Main queue
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:queue:{queue.Name}",
                 DisplayName: queue.Name,
                 NodeType: TreeNodeType.Queue,
-                ConnectionName: connectionName,
-                EntityPath: queue.Name
-            );
-
-            // Dead-letter queue
-            yield return new TreeNodeModel(
-                Id: $"conn:{connectionName}:queue:{queue.Name}:dlq",
-                DisplayName: $"{queue.Name} DLQ",
-                NodeType: TreeNodeType.QueueDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: queue.Name
             );
@@ -119,21 +109,10 @@ public class ServiceBusConnectionService
 
         await foreach (var sub in adminClient.GetSubscriptionsAsync(topicName))
         {
-            // Main subscription
             yield return new TreeNodeModel(
                 Id: $"conn:{connectionName}:topic:{topicName}:sub:{sub.SubscriptionName}",
                 DisplayName: sub.SubscriptionName,
                 NodeType: TreeNodeType.TopicSubscription,
-                ConnectionName: connectionName,
-                EntityPath: sub.SubscriptionName,
-                ParentEntityPath: topicName
-            );
-
-            // Dead-letter
-            yield return new TreeNodeModel(
-                Id: $"conn:{connectionName}:topic:{topicName}:sub:{sub.SubscriptionName}:dlq",
-                DisplayName: $"{sub.SubscriptionName} DLQ",
-                NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
                 ConnectionName: connectionName,
                 EntityPath: sub.SubscriptionName,
                 ParentEntityPath: topicName

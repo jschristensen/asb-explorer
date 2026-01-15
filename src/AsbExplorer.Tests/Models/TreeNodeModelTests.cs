@@ -32,14 +32,30 @@ public class TreeNodeModelTests
     [Fact]
     public void EffectiveDisplayName_WhenHasCount_ReturnsNameWithCount()
     {
+        // Queue nodes show both main and DLQ counts
         var node = new TreeNodeModel(
             Id: "test",
             DisplayName: "my-queue",
             NodeType: TreeNodeType.Queue,
-            MessageCount: 42
+            MessageCount: 42,
+            DlqMessageCount: 5
         );
 
-        Assert.Equal("my-queue (42)", node.EffectiveDisplayName);
+        Assert.Equal("my-queue (42, D: 5)", node.EffectiveDisplayName);
+    }
+
+    [Fact]
+    public void EffectiveDisplayName_DlqNode_ShowsSingleCount()
+    {
+        // DLQ nodes only show single count
+        var node = new TreeNodeModel(
+            Id: "test",
+            DisplayName: "DLQ",
+            NodeType: TreeNodeType.QueueDeadLetter,
+            MessageCount: 5
+        );
+
+        Assert.Equal("DLQ (5)", node.EffectiveDisplayName);
     }
 
     [Fact]
@@ -58,14 +74,16 @@ public class TreeNodeModelTests
     [Fact]
     public void EffectiveDisplayName_WhenZeroCount_ReturnsNameWithZero()
     {
+        // Queue nodes show both main and DLQ counts
         var node = new TreeNodeModel(
             Id: "test",
             DisplayName: "my-queue",
             NodeType: TreeNodeType.Queue,
-            MessageCount: 0
+            MessageCount: 0,
+            DlqMessageCount: 0
         );
 
-        Assert.Equal("my-queue (0)", node.EffectiveDisplayName);
+        Assert.Equal("my-queue (0, D: 0)", node.EffectiveDisplayName);
     }
 
     [Fact]
