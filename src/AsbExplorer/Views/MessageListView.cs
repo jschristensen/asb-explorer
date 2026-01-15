@@ -39,6 +39,7 @@ public class MessageListView : FrameView
         if (entityName != _currentEntityName)
         {
             _selectedSequenceNumbers.Clear();
+            RefreshCheckboxDisplay();
             UpdateRequeueButtonVisibility();
         }
         _currentEntityName = entityName;
