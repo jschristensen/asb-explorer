@@ -13,6 +13,8 @@ public class MainWindow : Window
     private readonly MessageListView _messageList;
     private readonly MessageDetailView _messageDetail;
     private readonly MessagePeekService _peekService;
+    private readonly IMessageRequeueService _requeueService;
+    private readonly MessageFormatter _formatter;
     private readonly FavoritesStore _favoritesStore;
     private readonly ConnectionStore _connectionStore;
     private readonly SettingsStore _settingsStore;
@@ -36,12 +38,15 @@ public class MainWindow : Window
         ServiceBusConnectionService connectionService,
         ConnectionStore connectionStore,
         MessagePeekService peekService,
+        IMessageRequeueService requeueService,
         FavoritesStore favoritesStore,
         SettingsStore settingsStore,
         MessageFormatter formatter)
     {
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
+        _requeueService = requeueService;
+        _formatter = formatter;
         _favoritesStore = favoritesStore;
         _connectionStore = connectionStore;
         _settingsStore = settingsStore;
@@ -121,6 +126,8 @@ public class MainWindow : Window
             _refreshingLabel.Visible = false;
         };
         _messageList.MessageSelected += OnMessageSelected;
+        _messageList.EditMessageRequested += OnEditMessageRequested;
+        _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
 
         // Initialize auto-refresh states from settings
         _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
@@ -286,6 +293,7 @@ public class MainWindow : Window
 
         if (!node.CanPeekMessages || node.ConnectionName is null)
         {
+            _messageList.SetEntityName(null);
             _messageList.Clear();
             _messageDetail.Clear();
             return;
@@ -296,6 +304,21 @@ public class MainWindow : Window
             var isDeadLetter = node.NodeType is
                 TreeNodeType.QueueDeadLetter or
                 TreeNodeType.TopicSubscriptionDeadLetter;
+
+            _messageList.IsDeadLetterMode = isDeadLetter;
+
+            // Build entity display name
+            var entityDisplayName = node.NodeType switch
+            {
+                TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
+                    => $"{node.ParentEntityPath}/{node.EntityPath}",
+                _ => node.EntityPath
+            };
+            if (isDeadLetter && entityDisplayName is not null)
+            {
+                entityDisplayName += " (DLQ)";
+            }
+            _messageList.SetEntityName(entityDisplayName);
 
             var topicName = node.NodeType is
                 TreeNodeType.TopicSubscription or
@@ -328,6 +351,143 @@ public class MainWindow : Window
         if (_currentNode is not null)
         {
             OnNodeSelected(_currentNode);
+        }
+    }
+
+    private async void OnEditMessageRequested(PeekedMessage message)
+    {
+        if (_currentNode is null || _currentNode.ConnectionName is null)
+        {
+            return;
+        }
+
+        var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
+        var entityName = isSubscription ? _currentNode.ParentEntityPath : _currentNode.EntityPath;
+
+        _isModalOpen = true;
+        var isDarkTheme = _settingsStore.Settings.Theme == "dark";
+        var dialog = new EditMessageDialog(message, entityName ?? "unknown", _formatter, isDarkTheme);
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (!dialog.Confirmed)
+        {
+            return;
+        }
+
+        try
+        {
+            var modifiedBody = new BinaryData(dialog.EditedBody);
+
+            // Send to original entity
+            RequeueResult sendResult;
+            if (isSubscription && _currentNode.ParentEntityPath is not null)
+            {
+                sendResult = await _requeueService.SendToTopicAsync(
+                    _currentNode.ConnectionName,
+                    _currentNode.ParentEntityPath,
+                    message,
+                    modifiedBody);
+            }
+            else if (_currentNode.EntityPath is not null)
+            {
+                sendResult = await _requeueService.SendToQueueAsync(
+                    _currentNode.ConnectionName,
+                    _currentNode.EntityPath,
+                    message,
+                    modifiedBody);
+            }
+            else
+            {
+                MessageBox.ErrorQuery("Error", "Could not determine destination entity", "OK");
+                return;
+            }
+
+            if (!sendResult.Success)
+            {
+                MessageBox.ErrorQuery("Error", $"Failed to send message: {sendResult.ErrorMessage}", "OK");
+                return;
+            }
+
+            // Complete original if Move was selected
+            if (dialog.RemoveOriginal)
+            {
+                RequeueResult completeResult;
+                if (isSubscription && _currentNode.ParentEntityPath is not null)
+                {
+                    completeResult = await _requeueService.CompleteFromSubscriptionDlqAsync(
+                        _currentNode.ConnectionName,
+                        _currentNode.ParentEntityPath,
+                        _currentNode.EntityPath!,
+                        message.SequenceNumber);
+                }
+                else
+                {
+                    completeResult = await _requeueService.CompleteFromQueueDlqAsync(
+                        _currentNode.ConnectionName,
+                        _currentNode.EntityPath!,
+                        message.SequenceNumber);
+                }
+
+                if (!completeResult.Success)
+                {
+                    MessageBox.Query("Warning",
+                        $"Message was sent but could not be removed from DLQ: {completeResult.ErrorMessage}",
+                        "OK");
+                }
+            }
+
+            // Refresh message list and tree counts
+            RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.ErrorQuery("Error", $"Failed to requeue message: {ex.Message}", "OK");
+        }
+    }
+
+    private void OnRequeueSelectedRequested()
+    {
+        if (_currentNode is null || _currentNode.ConnectionName is null)
+        {
+            return;
+        }
+
+        var selectedMessages = _messageList.GetSelectedMessages();
+        if (selectedMessages.Count == 0)
+        {
+            return;
+        }
+
+        var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
+        var topicName = isSubscription ? _currentNode.ParentEntityPath : null;
+        var connectionName = _currentNode.ConnectionName;
+        var entityPath = _currentNode.EntityPath!;
+
+        _isModalOpen = true;
+        var dialog = new RequeueProgressDialog(
+            selectedMessages.Count,
+            async (removeOriginals, onProgress) =>
+            {
+                return await _requeueService.RequeueMessagesAsync(
+                    connectionName,
+                    entityPath,
+                    topicName,
+                    selectedMessages,
+                    removeOriginals,
+                    onProgress);
+            });
+
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Confirmed)
+        {
+            // Clear selection and refresh
+            _messageList.ClearSelection();
+            RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
         }
     }
 

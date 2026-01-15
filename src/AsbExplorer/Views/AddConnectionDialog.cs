@@ -89,6 +89,15 @@ public class AddConnectionDialog : Dialog
 
         Add(nameLabel, _nameField, connLabel, _connectionStringField, addButton, cancelButton);
 
+        // Bind Escape to close dialog (v2 KeyBindings approach)
+        AddCommand(Command.Cancel, () =>
+        {
+            Confirmed = false;
+            Application.RequestStop();
+            return true;
+        });
+        KeyBindings.Add(Key.Esc, Command.Cancel);
+
         _nameField.SetFocus();
     }
 }
