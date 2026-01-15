@@ -8,6 +8,7 @@ public class RequeueProgressDialog : Dialog
 {
     private readonly int _messageCount;
     private readonly Func<bool, Action<int, int>, Task<BulkRequeueResult>> _processFunc;
+    private bool _isProcessing;
 
     // Confirmation state
     private readonly CheckBox _removeOriginalsCheckbox;
@@ -123,6 +124,19 @@ public class RequeueProgressDialog : Dialog
 
         Add(_questionLabel, _removeOriginalsCheckbox, _requeueButton, _cancelButton,
             _progressLabel, _progressBar, _resultLabel, _failuresText, _okButton);
+
+        // Bind Escape to close dialog (v2 KeyBindings approach)
+        // Only allow closing when not processing
+        AddCommand(Command.Cancel, () =>
+        {
+            if (_isProcessing)
+                return false; // Don't handle during processing
+
+            Confirmed = false;
+            Application.RequestStop();
+            return true;
+        });
+        KeyBindings.Add(Key.Esc, Command.Cancel);
     }
 
     private async void OnRequeueClicked(object? sender, CommandEventArgs e)
@@ -145,6 +159,8 @@ public class RequeueProgressDialog : Dialog
 
     private void ShowProgressState()
     {
+        _isProcessing = true;
+
         // Hide confirmation UI
         _questionLabel.Visible = false;
         _removeOriginalsCheckbox.Visible = false;
@@ -173,6 +189,8 @@ public class RequeueProgressDialog : Dialog
     {
         Application.Invoke(() =>
         {
+            _isProcessing = false;
+
             // Hide progress UI
             _progressLabel.Visible = false;
             _progressBar.Visible = false;
@@ -204,6 +222,8 @@ public class RequeueProgressDialog : Dialog
     {
         Application.Invoke(() =>
         {
+            _isProcessing = false;
+
             _progressLabel.Visible = false;
             _progressBar.Visible = false;
 

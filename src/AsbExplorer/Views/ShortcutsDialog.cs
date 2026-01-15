@@ -29,16 +29,15 @@ public class ShortcutsDialog : Dialog
         };
         okButton.Accepting += (s, e) => RequestStop();
         AddButton(okButton);
-    }
 
-    protected override bool OnKeyDown(Key key)
-    {
-        if (key.AsRune == new Rune('?') || key == Key.Esc)
+        // Bind Escape and '?' to close dialog (v2 KeyBindings approach)
+        AddCommand(Command.Cancel, () =>
         {
             RequestStop();
             return true;
-        }
-        return base.OnKeyDown(key);
+        });
+        KeyBindings.Add(Key.Esc, Command.Cancel);
+        KeyBindings.Add((Key)'?', Command.Cancel);
     }
 
     private static string GetShortcutsText()

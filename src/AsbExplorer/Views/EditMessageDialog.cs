@@ -159,6 +159,15 @@ public class EditMessageDialog : Dialog
             Add(_validationLabel);
         }
 
+        // Bind Escape to close dialog (v2 KeyBindings approach)
+        AddCommand(Command.Cancel, () =>
+        {
+            Confirmed = false;
+            Application.RequestStop();
+            return true;
+        });
+        KeyBindings.Add(Key.Esc, Command.Cancel);
+
         editorView.SetFocus();
     }
 

@@ -42,7 +42,9 @@ public class TreePanel : FrameView
             Text = "+ Add Connection",
             X = 0,
             Y = 0,
-            Width = Dim.Fill()
+            Width = Dim.Fill(),
+            BorderStyle = LineStyle.None,
+            ShadowStyle = ShadowStyle.None
         };
 
         addButton.Accepting += (s, e) =>
