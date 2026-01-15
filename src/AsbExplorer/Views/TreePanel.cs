@@ -231,6 +231,38 @@ public class TreePanel : FrameView
             return conns;
         }
 
+        // Queue and TopicSubscription have a single DLQ child - return immediately
+        if (node.NodeType == TreeNodeType.Queue)
+        {
+            var dlq = new TreeNodeModel(
+                Id: $"{node.Id}:dlq",
+                DisplayName: "DLQ",
+                NodeType: TreeNodeType.QueueDeadLetter,
+                ConnectionName: node.ConnectionName,
+                EntityPath: node.EntityPath
+            );
+            var dlqList = new List<TreeNodeModel> { dlq };
+            _childrenCache[node.Id] = dlqList;
+            _ = LoadMessageCountsAsync(dlqList, node.ConnectionName!, node);
+            return dlqList;
+        }
+
+        if (node.NodeType == TreeNodeType.TopicSubscription)
+        {
+            var dlq = new TreeNodeModel(
+                Id: $"{node.Id}:dlq",
+                DisplayName: "DLQ",
+                NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
+                ConnectionName: node.ConnectionName,
+                EntityPath: node.EntityPath,
+                ParentEntityPath: node.ParentEntityPath
+            );
+            var dlqList = new List<TreeNodeModel> { dlq };
+            _childrenCache[node.Id] = dlqList;
+            _ = LoadMessageCountsAsync(dlqList, node.ConnectionName!, node);
+            return dlqList;
+        }
+
         // For Service Bus nodes, return placeholder and load async
         if (!_loadingNodes.TryAdd(node.Id, true))
         {
@@ -412,11 +444,27 @@ public class TreePanel : FrameView
         {
             try
             {
+                // Queue and TopicSubscription need both main and DLQ counts
+                if (node.NodeType == TreeNodeType.Queue)
+                {
+                    var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
+                    var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
+                    await Task.WhenAll(countTask, dlqCountTask);
+                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+                }
+
+                if (node.NodeType == TreeNodeType.TopicSubscription)
+                {
+                    var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                    var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                    await Task.WhenAll(countTask, dlqCountTask);
+                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+                }
+
+                // DLQ nodes only need single count
                 var count = node.NodeType switch
                 {
-                    TreeNodeType.Queue => await _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!),
                     TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
-                    TreeNodeType.TopicSubscription => await _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
                     TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
                     _ => (long?)null
                 };
@@ -497,11 +545,29 @@ public class TreePanel : FrameView
     {
         try
         {
+            // Queue and TopicSubscription need both main and DLQ counts
+            if (node.NodeType == TreeNodeType.Queue)
+            {
+                var countTask = _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
+                return;
+            }
+
+            if (node.NodeType == TreeNodeType.TopicSubscription)
+            {
+                var countTask = _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
+                return;
+            }
+
+            // DLQ nodes only need single count
             var count = node.NodeType switch
             {
-                TreeNodeType.Queue => await _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!),
                 TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!),
-                TreeNodeType.TopicSubscription => await _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
                 TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
                 _ => (long?)null
             };
@@ -517,7 +583,7 @@ public class TreePanel : FrameView
         }
     }
 
-    private void UpdateNodeInCache(TreeNodeModel node, long count)
+    private void UpdateNodeInCache(TreeNodeModel node, long count, long? dlqCount = null)
     {
         // Find parent cache entry and update the node
         foreach (var kvp in _childrenCache)
@@ -525,7 +591,7 @@ public class TreePanel : FrameView
             var index = kvp.Value.FindIndex(n => n.Id == node.Id);
             if (index >= 0)
             {
-                kvp.Value[index] = node with { MessageCount = count };
+                kvp.Value[index] = node with { MessageCount = count, DlqMessageCount = dlqCount ?? node.DlqMessageCount };
                 Application.Invoke(() =>
                 {
                     var focused = Application.Navigation?.GetFocused();

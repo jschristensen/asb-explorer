@@ -8,6 +8,7 @@ public record TreeNodeModel(
     string? EntityPath = null,
     string? ParentEntityPath = null,
     long? MessageCount = null,
+    long? DlqMessageCount = null,
     bool IsLoadingCount = false
 )
 {
@@ -15,7 +16,9 @@ public record TreeNodeModel(
         TreeNodeType.FavoritesRoot or
         TreeNodeType.ConnectionsRoot or
         TreeNodeType.Namespace or
+        TreeNodeType.Queue or
         TreeNodeType.Topic or
+        TreeNodeType.TopicSubscription or
         TreeNodeType.QueuesFolder or
         TreeNodeType.TopicsFolder;
 
@@ -30,11 +33,27 @@ public record TreeNodeModel(
         TreeNodeType.QueuesFolder or
         TreeNodeType.TopicsFolder;
 
+    private bool HasDlqChild => NodeType is
+        TreeNodeType.Queue or
+        TreeNodeType.TopicSubscription;
+
     public string EffectiveDisplayName
     {
         get
         {
             if (IsFolderNode) return DisplayName;
+
+            // Nodes with DLQ children show both counts: (99, D: 10)
+            if (HasDlqChild)
+            {
+                if (MessageCount == -1 || DlqMessageCount == -1)
+                    return $"{DisplayName} (?)";
+                if (MessageCount.HasValue && DlqMessageCount.HasValue)
+                    return $"{DisplayName} ({MessageCount}, D: {DlqMessageCount})";
+                return DisplayName;
+            }
+
+            // Other nodes show single count
             if (MessageCount == -1) return $"{DisplayName} (?)";
             if (MessageCount.HasValue) return $"{DisplayName} ({MessageCount})";
             return DisplayName;
