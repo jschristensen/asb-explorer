@@ -22,6 +22,8 @@ public class TreePanel : FrameView
 
     public event Action<TreeNodeModel>? NodeSelected;
     public event Action? AddConnectionClicked;
+    public event Action<string>? EditConnectionClicked;
+    public event Action<string>? DeleteConnectionClicked;
     public event Action? RefreshStarted;
     public event Action? RefreshCompleted;
     public event Action<bool>? AutoRefreshTreeCountsToggled;
@@ -96,7 +98,112 @@ public class TreePanel : FrameView
             }
         };
 
+        // Handle right-click for context menu on connection nodes
+        _treeView.MouseClick += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button3Clicked))
+            {
+                // Get the node at the clicked row (not just the selected node)
+                var node = _treeView.GetObjectOnRow(e.Position.Y);
+                if (node?.NodeType == TreeNodeType.Namespace && node.ConnectionName is not null)
+                {
+                    // Calculate screen position for the context menu
+                    var screenX = e.Position.X + _treeView.Frame.X + Frame.X + 1;
+                    var screenY = e.Position.Y + _treeView.Frame.Y + Frame.Y + 1;
+                    ShowConnectionContextMenu(node.ConnectionName, screenX, screenY);
+                    e.Handled = true;
+                }
+            }
+        };
+
         Add(addButton, _autoRefreshCheckbox, _countdownLabel, _treeView);
+    }
+
+    private void ShowConnectionContextMenu(string connectionName, int screenX, int screenY)
+    {
+        string? selectedAction = null;
+
+        var dialog = new Dialog
+        {
+            Title = "",
+            Width = 12,
+            Height = 5,
+            X = screenX,
+            Y = screenY
+        };
+
+        var editButton = new Button
+        {
+            X = Pos.AnchorEnd(8),
+            Y = 0,
+            Text = "Edit",
+            NoPadding = true
+        };
+        editButton.Accepting += (s, e) =>
+        {
+            selectedAction = "edit";
+            Application.RequestStop();
+        };
+
+        var deleteButton = new Button
+        {
+            X = Pos.AnchorEnd(8),
+            Y = 1,
+            Text = "Delete",
+            NoPadding = true
+        };
+        deleteButton.Accepting += (s, e) =>
+        {
+            selectedAction = "delete";
+            Application.RequestStop();
+        };
+
+        dialog.Add(editButton, deleteButton);
+
+        // Escape to close
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        // Click outside to close - use Application.MouseEvent to catch clicks anywhere
+        void onMouseEvent(object? sender, MouseEventArgs e)
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
+            {
+                // Check if click is outside dialog bounds
+                var dialogFrame = dialog.Frame;
+                if (e.ScreenPosition.X < dialogFrame.X || e.ScreenPosition.X >= dialogFrame.X + dialogFrame.Width ||
+                    e.ScreenPosition.Y < dialogFrame.Y || e.ScreenPosition.Y >= dialogFrame.Y + dialogFrame.Height)
+                {
+                    Application.RequestStop();
+                }
+            }
+        }
+
+        Application.MouseEvent += onMouseEvent;
+        try
+        {
+            Application.Run(dialog);
+        }
+        finally
+        {
+            Application.MouseEvent -= onMouseEvent;
+        }
+
+        // Invoke action after dialog fully closes
+        if (selectedAction == "edit")
+        {
+            EditConnectionClicked?.Invoke(connectionName);
+        }
+        else if (selectedAction == "delete")
+        {
+            DeleteConnectionClicked?.Invoke(connectionName);
+        }
     }
 
     public void LoadRootNodes()

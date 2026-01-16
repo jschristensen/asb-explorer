@@ -115,6 +115,8 @@ public class MainWindow : Window
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
         _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
+        _treePanel.EditConnectionClicked += ShowEditConnectionDialog;
+        _treePanel.DeleteConnectionClicked += ShowDeleteConnectionConfirmation;
         _treePanel.RefreshStarted += () =>
         {
             _isTreeRefreshing = true;
@@ -292,6 +294,111 @@ public class MainWindow : Window
                 catch (Exception ex)
                 {
                     ShowError("Failed to save connection", ex);
+                }
+            });
+        }
+    }
+
+    private void ShowEditConnectionDialog(string connectionName)
+    {
+        var existing = _connectionStore.GetByName(connectionName);
+        if (existing is null)
+        {
+            MessageBox.ErrorQuery("Error", $"Connection '{connectionName}' not found", "OK");
+            return;
+        }
+
+        _isModalOpen = true;
+        var dialog = new AddConnectionDialog(existing.Name, existing.ConnectionString);
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Confirmed && dialog.ConnectionName is not null && dialog.ConnectionString is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // If name changed, remove the old one first
+                    if (dialog.OriginalName is not null &&
+                        !dialog.OriginalName.Equals(dialog.ConnectionName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _connectionStore.RemoveAsync(dialog.OriginalName);
+                    }
+
+                    var connection = new ServiceBusConnection(dialog.ConnectionName, dialog.ConnectionString);
+                    await _connectionStore.AddAsync(connection);
+                    Application.Invoke(() => _treePanel.RefreshConnections());
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Failed to save connection", ex);
+                }
+            });
+        }
+    }
+
+    private void ShowDeleteConnectionConfirmation(string connectionName)
+    {
+        _isModalOpen = true;
+        var confirmed = false;
+
+        var dialog = new Dialog
+        {
+            Title = "Delete Connection",
+            Width = 50,
+            Height = 7
+        };
+
+        var messageLabel = new Label
+        {
+            X = 1,
+            Y = 1,
+            Text = $"Are you sure you want to delete '{connectionName}'?"
+        };
+
+        var deleteButton = new Button { Text = "Delete" };
+        deleteButton.Accepting += (s, e) =>
+        {
+            confirmed = true;
+            Application.RequestStop();
+        };
+
+        var cancelButton = new Button { Text = "Cancel", IsDefault = true };
+        cancelButton.Accepting += (s, e) =>
+        {
+            Application.RequestStop();
+        };
+
+        dialog.Add(messageLabel);
+        dialog.AddButton(deleteButton);
+        dialog.AddButton(cancelButton);
+
+        // Escape to close
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (confirmed)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _connectionStore.RemoveAsync(connectionName);
+                    Application.Invoke(() => _treePanel.RefreshConnections());
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Failed to delete connection", ex);
                 }
             });
         }
