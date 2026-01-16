@@ -338,27 +338,16 @@ public class TreePanel : FrameView
         }
 
         // Queue and TopicSubscription have a single DLQ child - return immediately
-        if (node.NodeType == TreeNodeType.Queue)
+        if (node.NodeType is TreeNodeType.Queue or TreeNodeType.TopicSubscription)
         {
-            var dlq = new TreeNodeModel(
-                Id: $"{node.Id}:dlq",
-                DisplayName: "DLQ",
-                NodeType: TreeNodeType.QueueDeadLetter,
-                ConnectionName: node.ConnectionName,
-                EntityPath: node.EntityPath
-            );
-            var dlqList = new List<TreeNodeModel> { dlq };
-            _childrenCache[node.Id] = dlqList;
-            _ = LoadMessageCountsAsync(dlqList, node.ConnectionName!, node);
-            return dlqList;
-        }
+            var dlqType = node.NodeType == TreeNodeType.Queue
+                ? TreeNodeType.QueueDeadLetter
+                : TreeNodeType.TopicSubscriptionDeadLetter;
 
-        if (node.NodeType == TreeNodeType.TopicSubscription)
-        {
             var dlq = new TreeNodeModel(
                 Id: $"{node.Id}:dlq",
                 DisplayName: "DLQ",
-                NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
+                NodeType: dlqType,
                 ConnectionName: node.ConnectionName,
                 EntityPath: node.EntityPath,
                 ParentEntityPath: node.ParentEntityPath
@@ -410,12 +399,7 @@ public class TreePanel : FrameView
             _childrenCache[node.Id] = children;
 
             // Start loading message counts in background
-            if (node.NodeType == TreeNodeType.QueuesFolder && children.Count > 0)
-            {
-                _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
-            }
-
-            if (node.NodeType == TreeNodeType.Topic && children.Count > 0)
+            if (node.NodeType is TreeNodeType.QueuesFolder or TreeNodeType.Topic && children.Count > 0)
             {
                 _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
@@ -492,41 +476,34 @@ public class TreePanel : FrameView
         return Task.FromResult(folders);
     }
 
-    private async Task<List<TreeNodeModel>> LoadQueuesAsync(TreeNodeModel folder)
+    private Task<List<TreeNodeModel>> LoadQueuesAsync(TreeNodeModel folder)
+    {
+        return ToListAsync(_connectionService.GetQueuesAsync(folder.ConnectionName!));
+    }
+
+    private Task<List<TreeNodeModel>> LoadTopicsAsync(TreeNodeModel folder)
+    {
+        return ToListAsync(_connectionService.GetTopicsAsync(folder.ConnectionName!));
+    }
+
+    private static async Task<List<TreeNodeModel>> ToListAsync(IAsyncEnumerable<TreeNodeModel> source)
     {
         var results = new List<TreeNodeModel>();
-        await foreach (var queue in _connectionService.GetQueuesAsync(folder.ConnectionName!))
+        await foreach (var item in source)
         {
-            results.Add(queue);
+            results.Add(item);
         }
         return results;
     }
 
-    private async Task<List<TreeNodeModel>> LoadTopicsAsync(TreeNodeModel folder)
+    private Task<List<TreeNodeModel>> LoadSubscriptionsAsync(TreeNodeModel topic)
     {
-        var results = new List<TreeNodeModel>();
-        await foreach (var topic in _connectionService.GetTopicsAsync(folder.ConnectionName!))
-        {
-            results.Add(topic);
-        }
-        return results;
-    }
-
-    private async Task<List<TreeNodeModel>> LoadSubscriptionsAsync(TreeNodeModel topic)
-    {
-        var results = new List<TreeNodeModel>();
-
-        await foreach (var sub in _connectionService.GetSubscriptionsAsync(topic.ConnectionName!, topic.EntityPath!))
-        {
-            results.Add(sub);
-        }
-
-        return results;
+        return ToListAsync(_connectionService.GetSubscriptionsAsync(topic.ConnectionName!, topic.EntityPath!));
     }
 
     private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
-        // Mark all countable nodes as loading (no visual change since we removed (...) display)
+        // Mark all countable nodes as loading
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
@@ -537,51 +514,9 @@ public class TreePanel : FrameView
             }
         }
 
-        // Now fetch actual counts
-        var tasks = nodes.Select(async node =>
-        {
-            try
-            {
-                // Queue and TopicSubscription need both main and DLQ counts
-                if (node.NodeType == TreeNodeType.Queue)
-                {
-                    var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
-                    var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
-                    await Task.WhenAll(countTask, dlqCountTask);
-                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
-                }
-
-                if (node.NodeType == TreeNodeType.TopicSubscription)
-                {
-                    var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
-                    var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
-                    await Task.WhenAll(countTask, dlqCountTask);
-                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
-                }
-
-                // DLQ nodes only need single count
-                var count = node.NodeType switch
-                {
-                    TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
-                    TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
-                    _ => (long?)null
-                };
-
-                if (count.HasValue)
-                {
-                    return node with { MessageCount = count.Value, IsLoadingCount = false };
-                }
-                return node with { IsLoadingCount = false };
-            }
-            catch
-            {
-                return node with { MessageCount = -1, IsLoadingCount = false };
-            }
-        });
-
+        var tasks = nodes.Select(node => FetchNodeCountsAsync(node, connectionName));
         var updatedNodes = await Task.WhenAll(tasks);
 
-        // Update cache with new nodes
         foreach (var updated in updatedNodes.Where(n => n.MessageCount.HasValue || !n.IsLoadingCount))
         {
             var index = nodes.FindIndex(n => n.Id == updated.Id);
@@ -594,36 +529,59 @@ public class TreePanel : FrameView
         Application.Invoke(() => RefreshTreeUi(parentNode));
     }
 
+    private async Task<TreeNodeModel> FetchNodeCountsAsync(TreeNodeModel node, string connectionName)
+    {
+        try
+        {
+            if (node.NodeType == TreeNodeType.Queue)
+            {
+                var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+            }
+
+            if (node.NodeType == TreeNodeType.TopicSubscription)
+            {
+                var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+            }
+
+            var count = node.NodeType switch
+            {
+                TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
+                TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
+                _ => (long?)null
+            };
+
+            return count.HasValue
+                ? node with { MessageCount = count.Value, IsLoadingCount = false }
+                : node with { IsLoadingCount = false };
+        }
+        catch
+        {
+            return node with { MessageCount = -1, IsLoadingCount = false };
+        }
+    }
+
     private async Task RefreshMessageCountsAsync(TreeNodeModel node)
     {
         Application.Invoke(() => RefreshStarted?.Invoke());
         try
         {
-            switch (node.NodeType)
+            if (node.NodeType is TreeNodeType.QueuesFolder or TreeNodeType.Topic)
             {
-                case TreeNodeType.QueuesFolder:
-                    // Refresh all children of this folder
-                    if (_childrenCache.TryGetValue(node.Id, out var folderChildren))
-                    {
-                        await LoadMessageCountsAsync(folderChildren, node.ConnectionName!, node);
-                    }
-                    break;
-
-                case TreeNodeType.Topic:
-                    // Refresh all subscriptions under this topic
-                    if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
-                    {
-                        await LoadMessageCountsAsync(topicChildren, node.ConnectionName!, node);
-                    }
-                    break;
-
-                case TreeNodeType.Queue:
-                case TreeNodeType.QueueDeadLetter:
-                case TreeNodeType.TopicSubscription:
-                case TreeNodeType.TopicSubscriptionDeadLetter:
-                    // Refresh single node - find it in parent cache and update
-                    await RefreshSingleNodeCountAsync(node);
-                    break;
+                if (_childrenCache.TryGetValue(node.Id, out var children))
+                {
+                    await LoadMessageCountsAsync(children, node.ConnectionName!, node);
+                }
+            }
+            else if (node.NodeType is TreeNodeType.Queue or TreeNodeType.QueueDeadLetter
+                     or TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter)
+            {
+                await RefreshSingleNodeCountAsync(node);
             }
         }
         finally
@@ -634,44 +592,8 @@ public class TreePanel : FrameView
 
     private async Task RefreshSingleNodeCountAsync(TreeNodeModel node)
     {
-        try
-        {
-            // Queue and TopicSubscription need both main and DLQ counts
-            if (node.NodeType == TreeNodeType.Queue)
-            {
-                var countTask = _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!);
-                var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!);
-                await Task.WhenAll(countTask, dlqCountTask);
-                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
-                return;
-            }
-
-            if (node.NodeType == TreeNodeType.TopicSubscription)
-            {
-                var countTask = _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
-                var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
-                await Task.WhenAll(countTask, dlqCountTask);
-                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
-                return;
-            }
-
-            // DLQ nodes only need single count
-            var count = node.NodeType switch
-            {
-                TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!),
-                TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
-                _ => (long?)null
-            };
-
-            if (count.HasValue)
-            {
-                UpdateNodeInCache(node, count.Value);
-            }
-        }
-        catch
-        {
-            UpdateNodeInCache(node, -1);
-        }
+        var updated = await FetchNodeCountsAsync(node, node.ConnectionName!);
+        UpdateNodeInCache(node, updated.MessageCount ?? -1, updated.DlqMessageCount);
     }
 
     private void UpdateNodeInCache(TreeNodeModel node, long count, long? dlqCount = null)
