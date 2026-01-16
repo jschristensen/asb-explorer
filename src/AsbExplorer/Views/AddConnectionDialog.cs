@@ -7,6 +7,12 @@ public class AddConnectionDialog : Dialog
     private readonly TextField _nameField;
     private readonly TextField _connectionStringField;
 
+    private static void FocusField(View field)
+    {
+        field.SetFocus();
+        field.SetNeedsDraw();
+    }
+
     public string? ConnectionName { get; private set; }
     public string? ConnectionString { get; private set; }
     public bool Confirmed { get; private set; }
@@ -46,6 +52,13 @@ public class AddConnectionDialog : Dialog
             Secret = false
         };
 
+        // Handle Enter in name field to move to connection string field (prevent default button trigger)
+        _nameField.Accepting += (s, e) =>
+        {
+            FocusField(_connectionStringField);
+            e.Cancel = true;
+        };
+
         var addButton = new Button
         {
             Text = "Add",
@@ -59,12 +72,14 @@ public class AddConnectionDialog : Dialog
             if (string.IsNullOrWhiteSpace(_nameField.Text))
             {
                 MessageBox.ErrorQuery("Error", "Name is required", "OK");
+                FocusField(_nameField);
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(_connectionStringField.Text))
             {
                 MessageBox.ErrorQuery("Error", "Connection string is required", "OK");
+                FocusField(_connectionStringField);
                 return;
             }
 
@@ -98,6 +113,6 @@ public class AddConnectionDialog : Dialog
         });
         KeyBindings.Add(Key.Esc, Command.Cancel);
 
-        _nameField.SetFocus();
+        Initialized += (_, _) => FocusField(_nameField);
     }
 }

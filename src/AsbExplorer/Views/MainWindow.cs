@@ -147,55 +147,59 @@ public class MainWindow : Window
             StartMessageListRefreshTimer();
         }
 
-        // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
-        Application.KeyDown += OnApplicationKeyDown;
+        // Define commands for panel navigation
+        // Using existing Command enum values for our custom navigation actions
+        // Guard: skip if focus is on text input (shouldn't happen with Application.KeyBindings, but safety check)
+        AddCommand(Command.StartOfPage, _ =>  // E - Explorer
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(40);
+            _treePanel.SetFocus();
+            return true;
+        });
+        AddCommand(Command.EndOfPage, _ =>  // M - Messages
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(40);
+            _messageList.SetFocus();
+            return true;
+        });
+        AddCommand(Command.PageUp, _ =>  // D - Details
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(20);
+            _messageDetail.SetFocus();
+            return true;
+        });
+        AddCommand(Command.PageDown, _ =>  // P - Properties tab (only in detail)
+        {
+            if (IsFocusOnTextInput()) return false;
+            if (IsFocusWithinMessageDetail()) { _messageDetail.SwitchToTab(0); return true; }
+            return false;
+        });
+        AddCommand(Command.PageLeft, _ =>  // B - Body tab (only in detail)
+        {
+            if (IsFocusOnTextInput()) return false;
+            if (IsFocusWithinMessageDetail()) { _messageDetail.SwitchToTab(1); return true; }
+            return false;
+        });
+
+        // Register application-scoped key bindings (fire AFTER views process keys)
+        // This allows TextField/TextView to consume keys for text input first
+        Initialized += (_, _) =>
+        {
+            Application.KeyBindings.Add(Key.E, this, Command.StartOfPage);
+            Application.KeyBindings.Add(Key.M, this, Command.EndOfPage);
+            Application.KeyBindings.Add(Key.D, this, Command.PageUp);
+            Application.KeyBindings.Add(Key.P, this, Command.PageDown);
+            Application.KeyBindings.Add(Key.B, this, Command.PageLeft);
+        };
 
         // Dynamic panel sizing: 20/80 when Details is focused, 40/60 otherwise
-        // Only react to user-initiated focus changes via keyboard (M/D/E handled in OnApplicationKeyDown)
-        // and mouse clicks on the panels
+        // React to user-initiated focus changes via keyboard and mouse clicks
         _treePanel.MouseClick += (s, e) => SetMessageListHeight(40);
         _messageList.MouseClick += (s, e) => SetMessageListHeight(40);
         _messageDetail.MouseClick += (s, e) => SetMessageListHeight(20);
-    }
-
-    private void OnApplicationKeyDown(object? sender, Key key)
-    {
-        // Skip if modifiers are held (except shift for ?)
-        var noMods = !key.IsCtrl && !key.IsAlt && !key.IsShift;
-
-        // Panel navigation: E/M/D (single letters, no modifiers) - global
-        if (key.KeyCode == KeyCode.E && noMods)
-        {
-            SetMessageListHeight(40);
-            _treePanel.SetFocus();
-            key.Handled = true;
-            return;
-        }
-        if (key.KeyCode == KeyCode.M && noMods)
-        {
-            SetMessageListHeight(40);
-            _messageList.SetFocus();
-            key.Handled = true;
-            return;
-        }
-        if (key.KeyCode == KeyCode.D && noMods)
-        {
-            SetMessageListHeight(20);
-            _messageDetail.SetFocus();
-            key.Handled = true;
-            return;
-        }
-
-        // Tab switching: P/B - only when focus is within Details panel
-        if ((key.KeyCode == KeyCode.P || key.KeyCode == KeyCode.B) && noMods)
-        {
-            if (IsFocusWithinMessageDetail())
-            {
-                _messageDetail.SwitchToTab(key.KeyCode == KeyCode.P ? 0 : 1);
-                key.Handled = true;
-                return;
-            }
-        }
     }
 
     private bool IsFocusWithinMessageDetail()
@@ -214,6 +218,12 @@ public class MainWindow : Window
             current = current.SuperView;
         }
         return false;
+    }
+
+    private static bool IsFocusOnTextInput()
+    {
+        var focused = Application.Navigation?.GetFocused();
+        return focused is TextField or TextView;
     }
 
     private void SetMessageListHeight(int percent)
@@ -601,6 +611,9 @@ public class MainWindow : Window
         _countdownDisplayTimer = new System.Timers.Timer(1000);
         _countdownDisplayTimer.Elapsed += (s, e) =>
         {
+            // Skip UI updates when a modal dialog is open to avoid cursor/redraw issues
+            if (_isModalOpen) return;
+
             if (_treeRefreshTimer != null)
             {
                 _treeCountdown = Math.Max(0, _treeCountdown - 1);
@@ -702,7 +715,13 @@ public class MainWindow : Window
     {
         if (disposing)
         {
-            Application.KeyDown -= OnApplicationKeyDown;
+            // Remove application-scoped key bindings
+            Application.KeyBindings.Remove(Key.E);
+            Application.KeyBindings.Remove(Key.M);
+            Application.KeyBindings.Remove(Key.D);
+            Application.KeyBindings.Remove(Key.P);
+            Application.KeyBindings.Remove(Key.B);
+
             StopTreeRefreshTimer();
             StopMessageListRefreshTimer();
             _countdownDisplayTimer?.Stop();

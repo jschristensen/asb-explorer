@@ -9,6 +9,7 @@ public class TreePanel : FrameView
 {
     private readonly TreeView<TreeNodeModel> _treeView;
     private readonly CheckBox _autoRefreshCheckbox;
+    private readonly Label _countdownLabel;
     private readonly ServiceBusConnectionService _connectionService;
     private readonly ConnectionStore _connectionStore;
     private readonly FavoritesStore _favoritesStore;
@@ -60,6 +61,13 @@ public class TreePanel : FrameView
             CheckedState = CheckState.UnChecked
         };
 
+        _countdownLabel = new Label
+        {
+            Text = "",
+            X = Pos.Right(_autoRefreshCheckbox),
+            Y = Pos.Bottom(addButton)
+        };
+
         _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
         {
             AutoRefreshTreeCountsToggled?.Invoke(e.NewValue == CheckState.Checked);
@@ -88,16 +96,7 @@ public class TreePanel : FrameView
             }
         };
 
-        Add(addButton, _autoRefreshCheckbox, _treeView);
-
-        // Ensure TreeView gets focus when this panel is focused
-        HasFocusChanged += (s, e) =>
-        {
-            if (e.NewValue && !_treeView.HasFocus)
-            {
-                _treeView.SetFocus();
-            }
-        };
+        Add(addButton, _autoRefreshCheckbox, _countdownLabel, _treeView);
     }
 
     public void LoadRootNodes()
@@ -161,13 +160,13 @@ public class TreePanel : FrameView
         _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
         if (!isChecked)
         {
-            _autoRefreshCheckbox.Text = "Auto-refresh counts";
+            _countdownLabel.Text = "";
         }
     }
 
     public void UpdateAutoRefreshCountdown(int secondsRemaining)
     {
-        _autoRefreshCheckbox.Text = $"Auto-refresh counts ({secondsRemaining}s)";
+        _countdownLabel.Text = $"({secondsRemaining}s)";
     }
 
     private async Task RefreshAllCountsAsync()
@@ -314,12 +313,8 @@ public class TreePanel : FrameView
                 _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
 
-            // Refresh the tree on UI thread
-            Application.Invoke(() =>
-            {
-                _treeView.RefreshObject(node);
-                _treeView.SetNeedsDraw();
-            });
+            // Refresh the tree on UI thread without touching focus
+            Application.Invoke(() => RefreshTreeUi(node));
         }
         catch (Exception ex)
         {
@@ -349,11 +344,7 @@ public class TreePanel : FrameView
             );
             _childrenCache[node.Id] = [errorNode];
 
-            Application.Invoke(() =>
-            {
-                _treeView.RefreshObject(node);
-                _treeView.SetNeedsDraw();
-            });
+            Application.Invoke(() => RefreshTreeUi(node));
         }
         finally
         {
@@ -493,14 +484,7 @@ public class TreePanel : FrameView
             }
         }
 
-        Application.Invoke(() =>
-        {
-            // Preserve focus during refresh to prevent stealing focus from other panels
-            var focused = Application.Navigation?.GetFocused();
-            _treeView.RefreshObject(parentNode);
-            _treeView.SetNeedsDraw();
-            focused?.SetFocus();
-        });
+        Application.Invoke(() => RefreshTreeUi(parentNode));
     }
 
     private async Task RefreshMessageCountsAsync(TreeNodeModel node)
@@ -592,14 +576,41 @@ public class TreePanel : FrameView
             if (index >= 0)
             {
                 kvp.Value[index] = node with { MessageCount = count, DlqMessageCount = dlqCount ?? node.DlqMessageCount };
-                Application.Invoke(() =>
-                {
-                    var focused = Application.Navigation?.GetFocused();
-                    _treeView.SetNeedsDraw();
-                    focused?.SetFocus();
-                });
+                Application.Invoke(() => RefreshTreeUi());
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Refreshes the tree visuals without altering focus (v2-safe redraw).
+    /// Skips redraws when this panel is not in the active toplevel (e.g., a modal dialog is running).
+    /// </summary>
+    private void RefreshTreeUi(TreeNodeModel? nodeToRefresh = null)
+    {
+        if (!IsInActiveTopLevel())
+        {
+            return;
+        }
+
+        if (nodeToRefresh is not null)
+        {
+            _treeView.RefreshObject(nodeToRefresh);
+        }
+
+        _treeView.SetNeedsDraw();
+    }
+
+    private bool IsInActiveTopLevel()
+    {
+        // Walk up to the toplevel that contains this panel
+        View current = this;
+        while (current.SuperView is not null)
+        {
+            current = current.SuperView;
+        }
+
+        // Only redraw if our toplevel is the active one (avoids touching background UIs during modal dialogs)
+        return ReferenceEquals(current, Application.Top);
     }
 }
