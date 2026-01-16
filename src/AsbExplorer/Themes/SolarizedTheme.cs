@@ -41,6 +41,8 @@ public static class SolarizedTheme
     private static readonly Color Magenta = new(211, 54, 130);
     private static readonly Color Red = new(220, 50, 47);
 
+    public static Color DangerAccent => Red;
+
     public static ColorScheme Dark { get; } = CreateDarkScheme();
     public static ColorScheme Light { get; } = CreateLightScheme();
 

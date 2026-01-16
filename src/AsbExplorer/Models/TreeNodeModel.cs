@@ -29,34 +29,12 @@ public record TreeNodeModel(
         TreeNodeType.TopicSubscriptionDeadLetter or
         TreeNodeType.Favorite;
 
-    private bool IsFolderNode => NodeType is
-        TreeNodeType.QueuesFolder or
-        TreeNodeType.TopicsFolder;
-
     private bool HasDlqChild => NodeType is
         TreeNodeType.Queue or
         TreeNodeType.TopicSubscription;
 
-    public string EffectiveDisplayName
-    {
-        get
-        {
-            if (IsFolderNode) return DisplayName;
+    public string EffectiveDisplayName => TreeNodeDisplayFormatter.Format(this).DisplayText;
 
-            // Nodes with DLQ children show both counts: (99, D: 10)
-            if (HasDlqChild)
-            {
-                if (MessageCount == -1 || DlqMessageCount == -1)
-                    return $"{DisplayName} (?)";
-                if (MessageCount.HasValue && DlqMessageCount.HasValue)
-                    return $"{DisplayName} ({MessageCount}, D: {DlqMessageCount})";
-                return DisplayName;
-            }
-
-            // Other nodes show single count
-            if (MessageCount == -1) return $"{DisplayName} (?)";
-            if (MessageCount.HasValue) return $"{DisplayName} ({MessageCount})";
-            return DisplayName;
-        }
-    }
+    // Expose helper for formatter without public surface change
+    internal bool HasDlqChildInternal() => HasDlqChild;
 }

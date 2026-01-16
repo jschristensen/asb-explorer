@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Services;
+using AsbExplorer.Themes;
+using Attribute = Terminal.Gui.Attribute;
 
 namespace AsbExplorer.Views;
 
@@ -89,6 +91,8 @@ public class TreePanel : FrameView
             CanFocus = true,
             TabStop = TabBehavior.TabStop
         };
+
+        _treeView.DrawLine += OnTreeDrawLine;
 
         _treeView.SelectionChanged += (s, e) =>
         {
@@ -203,6 +207,37 @@ public class TreePanel : FrameView
         else if (selectedAction == "delete")
         {
             DeleteConnectionClicked?.Invoke(connectionName);
+        }
+    }
+
+    private static void OnTreeDrawLine(object? sender, DrawTreeViewLineEventArgs<TreeNodeModel> e)
+    {
+        // Only customize model text region
+        if (e.Model is null || e.IndexOfModelText < 0)
+        {
+            return;
+        }
+
+        var formatted = TreeNodeDisplayFormatter.Format(e.Model);
+        if (!formatted.HighlightDlq || string.IsNullOrEmpty(formatted.DlqText) || string.IsNullOrEmpty(formatted.PrefixText))
+        {
+            return;
+        }
+
+        // Find where model text starts
+        var start = e.IndexOfModelText;
+        var dlqStart = start + formatted.PrefixText.Length;
+        var dlqEnd = dlqStart + formatted.DlqText.Length;
+
+        if (e.Tree.ColorScheme == null) return;
+        var background = e.Tree.ColorScheme.Normal.Background;
+        var highlightAttr = new Attribute(SolarizedTheme.DangerAccent, background);
+
+        for (var i = dlqStart; i < dlqEnd && i < e.Cells.Count; i++)
+        {
+            if (i < 0) continue;
+            var cell = e.Cells[i];
+            e.Cells[i] = new Cell(highlightAttr, cell.IsDirty, cell.Rune);
         }
     }
 
