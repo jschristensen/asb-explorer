@@ -9,6 +9,7 @@ public class TreePanel : FrameView
 {
     private readonly TreeView<TreeNodeModel> _treeView;
     private readonly CheckBox _autoRefreshCheckbox;
+    private readonly Label _countdownLabel;
     private readonly ServiceBusConnectionService _connectionService;
     private readonly ConnectionStore _connectionStore;
     private readonly FavoritesStore _favoritesStore;
@@ -21,6 +22,8 @@ public class TreePanel : FrameView
 
     public event Action<TreeNodeModel>? NodeSelected;
     public event Action? AddConnectionClicked;
+    public event Action<string>? EditConnectionClicked;
+    public event Action<string>? DeleteConnectionClicked;
     public event Action? RefreshStarted;
     public event Action? RefreshCompleted;
     public event Action<bool>? AutoRefreshTreeCountsToggled;
@@ -60,6 +63,13 @@ public class TreePanel : FrameView
             CheckedState = CheckState.UnChecked
         };
 
+        _countdownLabel = new Label
+        {
+            Text = "",
+            X = Pos.Right(_autoRefreshCheckbox),
+            Y = Pos.Bottom(addButton)
+        };
+
         _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
         {
             AutoRefreshTreeCountsToggled?.Invoke(e.NewValue == CheckState.Checked);
@@ -88,16 +98,112 @@ public class TreePanel : FrameView
             }
         };
 
-        Add(addButton, _autoRefreshCheckbox, _treeView);
-
-        // Ensure TreeView gets focus when this panel is focused
-        HasFocusChanged += (s, e) =>
+        // Handle right-click for context menu on connection nodes
+        _treeView.MouseClick += (s, e) =>
         {
-            if (e.NewValue && !_treeView.HasFocus)
+            if (e.Flags.HasFlag(MouseFlags.Button3Clicked))
             {
-                _treeView.SetFocus();
+                // Get the node at the clicked row (not just the selected node)
+                var node = _treeView.GetObjectOnRow(e.Position.Y);
+                if (node?.NodeType == TreeNodeType.Namespace && node.ConnectionName is not null)
+                {
+                    // Calculate screen position for the context menu
+                    var screenX = e.Position.X + _treeView.Frame.X + Frame.X + 1;
+                    var screenY = e.Position.Y + _treeView.Frame.Y + Frame.Y + 1;
+                    ShowConnectionContextMenu(node.ConnectionName, screenX, screenY);
+                    e.Handled = true;
+                }
             }
         };
+
+        Add(addButton, _autoRefreshCheckbox, _countdownLabel, _treeView);
+    }
+
+    private void ShowConnectionContextMenu(string connectionName, int screenX, int screenY)
+    {
+        string? selectedAction = null;
+
+        var dialog = new Dialog
+        {
+            Title = "",
+            Width = 12,
+            Height = 5,
+            X = screenX,
+            Y = screenY
+        };
+
+        var editButton = new Button
+        {
+            X = Pos.AnchorEnd(8),
+            Y = 0,
+            Text = "Edit",
+            NoPadding = true
+        };
+        editButton.Accepting += (s, e) =>
+        {
+            selectedAction = "edit";
+            Application.RequestStop();
+        };
+
+        var deleteButton = new Button
+        {
+            X = Pos.AnchorEnd(8),
+            Y = 1,
+            Text = "Delete",
+            NoPadding = true
+        };
+        deleteButton.Accepting += (s, e) =>
+        {
+            selectedAction = "delete";
+            Application.RequestStop();
+        };
+
+        dialog.Add(editButton, deleteButton);
+
+        // Escape to close
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        // Click outside to close - use Application.MouseEvent to catch clicks anywhere
+        void onMouseEvent(object? sender, MouseEventArgs e)
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
+            {
+                // Check if click is outside dialog bounds
+                var dialogFrame = dialog.Frame;
+                if (e.ScreenPosition.X < dialogFrame.X || e.ScreenPosition.X >= dialogFrame.X + dialogFrame.Width ||
+                    e.ScreenPosition.Y < dialogFrame.Y || e.ScreenPosition.Y >= dialogFrame.Y + dialogFrame.Height)
+                {
+                    Application.RequestStop();
+                }
+            }
+        }
+
+        Application.MouseEvent += onMouseEvent;
+        try
+        {
+            Application.Run(dialog);
+        }
+        finally
+        {
+            Application.MouseEvent -= onMouseEvent;
+        }
+
+        // Invoke action after dialog fully closes
+        if (selectedAction == "edit")
+        {
+            EditConnectionClicked?.Invoke(connectionName);
+        }
+        else if (selectedAction == "delete")
+        {
+            DeleteConnectionClicked?.Invoke(connectionName);
+        }
     }
 
     public void LoadRootNodes()
@@ -161,13 +267,13 @@ public class TreePanel : FrameView
         _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
         if (!isChecked)
         {
-            _autoRefreshCheckbox.Text = "Auto-refresh counts";
+            _countdownLabel.Text = "";
         }
     }
 
     public void UpdateAutoRefreshCountdown(int secondsRemaining)
     {
-        _autoRefreshCheckbox.Text = $"Auto-refresh counts ({secondsRemaining}s)";
+        _countdownLabel.Text = $"({secondsRemaining}s)";
     }
 
     private async Task RefreshAllCountsAsync()
@@ -232,27 +338,16 @@ public class TreePanel : FrameView
         }
 
         // Queue and TopicSubscription have a single DLQ child - return immediately
-        if (node.NodeType == TreeNodeType.Queue)
+        if (node.NodeType is TreeNodeType.Queue or TreeNodeType.TopicSubscription)
         {
-            var dlq = new TreeNodeModel(
-                Id: $"{node.Id}:dlq",
-                DisplayName: "DLQ",
-                NodeType: TreeNodeType.QueueDeadLetter,
-                ConnectionName: node.ConnectionName,
-                EntityPath: node.EntityPath
-            );
-            var dlqList = new List<TreeNodeModel> { dlq };
-            _childrenCache[node.Id] = dlqList;
-            _ = LoadMessageCountsAsync(dlqList, node.ConnectionName!, node);
-            return dlqList;
-        }
+            var dlqType = node.NodeType == TreeNodeType.Queue
+                ? TreeNodeType.QueueDeadLetter
+                : TreeNodeType.TopicSubscriptionDeadLetter;
 
-        if (node.NodeType == TreeNodeType.TopicSubscription)
-        {
             var dlq = new TreeNodeModel(
                 Id: $"{node.Id}:dlq",
                 DisplayName: "DLQ",
-                NodeType: TreeNodeType.TopicSubscriptionDeadLetter,
+                NodeType: dlqType,
                 ConnectionName: node.ConnectionName,
                 EntityPath: node.EntityPath,
                 ParentEntityPath: node.ParentEntityPath
@@ -304,22 +399,13 @@ public class TreePanel : FrameView
             _childrenCache[node.Id] = children;
 
             // Start loading message counts in background
-            if (node.NodeType == TreeNodeType.QueuesFolder && children.Count > 0)
+            if (node.NodeType is TreeNodeType.QueuesFolder or TreeNodeType.Topic && children.Count > 0)
             {
                 _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
             }
 
-            if (node.NodeType == TreeNodeType.Topic && children.Count > 0)
-            {
-                _ = LoadMessageCountsAsync(children, node.ConnectionName!, node);
-            }
-
-            // Refresh the tree on UI thread
-            Application.Invoke(() =>
-            {
-                _treeView.RefreshObject(node);
-                _treeView.SetNeedsDraw();
-            });
+            // Refresh the tree on UI thread without touching focus
+            Application.Invoke(() => RefreshTreeUi(node));
         }
         catch (Exception ex)
         {
@@ -349,11 +435,7 @@ public class TreePanel : FrameView
             );
             _childrenCache[node.Id] = [errorNode];
 
-            Application.Invoke(() =>
-            {
-                _treeView.RefreshObject(node);
-                _treeView.SetNeedsDraw();
-            });
+            Application.Invoke(() => RefreshTreeUi(node));
         }
         finally
         {
@@ -394,41 +476,34 @@ public class TreePanel : FrameView
         return Task.FromResult(folders);
     }
 
-    private async Task<List<TreeNodeModel>> LoadQueuesAsync(TreeNodeModel folder)
+    private Task<List<TreeNodeModel>> LoadQueuesAsync(TreeNodeModel folder)
+    {
+        return ToListAsync(_connectionService.GetQueuesAsync(folder.ConnectionName!));
+    }
+
+    private Task<List<TreeNodeModel>> LoadTopicsAsync(TreeNodeModel folder)
+    {
+        return ToListAsync(_connectionService.GetTopicsAsync(folder.ConnectionName!));
+    }
+
+    private static async Task<List<TreeNodeModel>> ToListAsync(IAsyncEnumerable<TreeNodeModel> source)
     {
         var results = new List<TreeNodeModel>();
-        await foreach (var queue in _connectionService.GetQueuesAsync(folder.ConnectionName!))
+        await foreach (var item in source)
         {
-            results.Add(queue);
+            results.Add(item);
         }
         return results;
     }
 
-    private async Task<List<TreeNodeModel>> LoadTopicsAsync(TreeNodeModel folder)
+    private Task<List<TreeNodeModel>> LoadSubscriptionsAsync(TreeNodeModel topic)
     {
-        var results = new List<TreeNodeModel>();
-        await foreach (var topic in _connectionService.GetTopicsAsync(folder.ConnectionName!))
-        {
-            results.Add(topic);
-        }
-        return results;
-    }
-
-    private async Task<List<TreeNodeModel>> LoadSubscriptionsAsync(TreeNodeModel topic)
-    {
-        var results = new List<TreeNodeModel>();
-
-        await foreach (var sub in _connectionService.GetSubscriptionsAsync(topic.ConnectionName!, topic.EntityPath!))
-        {
-            results.Add(sub);
-        }
-
-        return results;
+        return ToListAsync(_connectionService.GetSubscriptionsAsync(topic.ConnectionName!, topic.EntityPath!));
     }
 
     private async Task LoadMessageCountsAsync(List<TreeNodeModel> nodes, string connectionName, TreeNodeModel parentNode)
     {
-        // Mark all countable nodes as loading (no visual change since we removed (...) display)
+        // Mark all countable nodes as loading
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
@@ -439,51 +514,9 @@ public class TreePanel : FrameView
             }
         }
 
-        // Now fetch actual counts
-        var tasks = nodes.Select(async node =>
-        {
-            try
-            {
-                // Queue and TopicSubscription need both main and DLQ counts
-                if (node.NodeType == TreeNodeType.Queue)
-                {
-                    var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
-                    var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
-                    await Task.WhenAll(countTask, dlqCountTask);
-                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
-                }
-
-                if (node.NodeType == TreeNodeType.TopicSubscription)
-                {
-                    var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
-                    var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
-                    await Task.WhenAll(countTask, dlqCountTask);
-                    return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
-                }
-
-                // DLQ nodes only need single count
-                var count = node.NodeType switch
-                {
-                    TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
-                    TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
-                    _ => (long?)null
-                };
-
-                if (count.HasValue)
-                {
-                    return node with { MessageCount = count.Value, IsLoadingCount = false };
-                }
-                return node with { IsLoadingCount = false };
-            }
-            catch
-            {
-                return node with { MessageCount = -1, IsLoadingCount = false };
-            }
-        });
-
+        var tasks = nodes.Select(node => FetchNodeCountsAsync(node, connectionName));
         var updatedNodes = await Task.WhenAll(tasks);
 
-        // Update cache with new nodes
         foreach (var updated in updatedNodes.Where(n => n.MessageCount.HasValue || !n.IsLoadingCount))
         {
             var index = nodes.FindIndex(n => n.Id == updated.Id);
@@ -493,14 +526,44 @@ public class TreePanel : FrameView
             }
         }
 
-        Application.Invoke(() =>
+        Application.Invoke(() => RefreshTreeUi(parentNode));
+    }
+
+    private async Task<TreeNodeModel> FetchNodeCountsAsync(TreeNodeModel node, string connectionName)
+    {
+        try
         {
-            // Preserve focus during refresh to prevent stealing focus from other panels
-            var focused = Application.Navigation?.GetFocused();
-            _treeView.RefreshObject(parentNode);
-            _treeView.SetNeedsDraw();
-            focused?.SetFocus();
-        });
+            if (node.NodeType == TreeNodeType.Queue)
+            {
+                var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+            }
+
+            if (node.NodeType == TreeNodeType.TopicSubscription)
+            {
+                var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
+                await Task.WhenAll(countTask, dlqCountTask);
+                return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
+            }
+
+            var count = node.NodeType switch
+            {
+                TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
+                TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),
+                _ => (long?)null
+            };
+
+            return count.HasValue
+                ? node with { MessageCount = count.Value, IsLoadingCount = false }
+                : node with { IsLoadingCount = false };
+        }
+        catch
+        {
+            return node with { MessageCount = -1, IsLoadingCount = false };
+        }
     }
 
     private async Task RefreshMessageCountsAsync(TreeNodeModel node)
@@ -508,31 +571,17 @@ public class TreePanel : FrameView
         Application.Invoke(() => RefreshStarted?.Invoke());
         try
         {
-            switch (node.NodeType)
+            if (node.NodeType is TreeNodeType.QueuesFolder or TreeNodeType.Topic)
             {
-                case TreeNodeType.QueuesFolder:
-                    // Refresh all children of this folder
-                    if (_childrenCache.TryGetValue(node.Id, out var folderChildren))
-                    {
-                        await LoadMessageCountsAsync(folderChildren, node.ConnectionName!, node);
-                    }
-                    break;
-
-                case TreeNodeType.Topic:
-                    // Refresh all subscriptions under this topic
-                    if (_childrenCache.TryGetValue(node.Id, out var topicChildren))
-                    {
-                        await LoadMessageCountsAsync(topicChildren, node.ConnectionName!, node);
-                    }
-                    break;
-
-                case TreeNodeType.Queue:
-                case TreeNodeType.QueueDeadLetter:
-                case TreeNodeType.TopicSubscription:
-                case TreeNodeType.TopicSubscriptionDeadLetter:
-                    // Refresh single node - find it in parent cache and update
-                    await RefreshSingleNodeCountAsync(node);
-                    break;
+                if (_childrenCache.TryGetValue(node.Id, out var children))
+                {
+                    await LoadMessageCountsAsync(children, node.ConnectionName!, node);
+                }
+            }
+            else if (node.NodeType is TreeNodeType.Queue or TreeNodeType.QueueDeadLetter
+                     or TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter)
+            {
+                await RefreshSingleNodeCountAsync(node);
             }
         }
         finally
@@ -543,44 +592,8 @@ public class TreePanel : FrameView
 
     private async Task RefreshSingleNodeCountAsync(TreeNodeModel node)
     {
-        try
-        {
-            // Queue and TopicSubscription need both main and DLQ counts
-            if (node.NodeType == TreeNodeType.Queue)
-            {
-                var countTask = _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!);
-                var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!);
-                await Task.WhenAll(countTask, dlqCountTask);
-                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
-                return;
-            }
-
-            if (node.NodeType == TreeNodeType.TopicSubscription)
-            {
-                var countTask = _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
-                var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!);
-                await Task.WhenAll(countTask, dlqCountTask);
-                UpdateNodeInCache(node, countTask.Result, dlqCountTask.Result);
-                return;
-            }
-
-            // DLQ nodes only need single count
-            var count = node.NodeType switch
-            {
-                TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!),
-                TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, node.ParentEntityPath!, node.EntityPath!),
-                _ => (long?)null
-            };
-
-            if (count.HasValue)
-            {
-                UpdateNodeInCache(node, count.Value);
-            }
-        }
-        catch
-        {
-            UpdateNodeInCache(node, -1);
-        }
+        var updated = await FetchNodeCountsAsync(node, node.ConnectionName!);
+        UpdateNodeInCache(node, updated.MessageCount ?? -1, updated.DlqMessageCount);
     }
 
     private void UpdateNodeInCache(TreeNodeModel node, long count, long? dlqCount = null)
@@ -592,14 +605,41 @@ public class TreePanel : FrameView
             if (index >= 0)
             {
                 kvp.Value[index] = node with { MessageCount = count, DlqMessageCount = dlqCount ?? node.DlqMessageCount };
-                Application.Invoke(() =>
-                {
-                    var focused = Application.Navigation?.GetFocused();
-                    _treeView.SetNeedsDraw();
-                    focused?.SetFocus();
-                });
+                Application.Invoke(() => RefreshTreeUi());
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Refreshes the tree visuals without altering focus (v2-safe redraw).
+    /// Skips redraws when this panel is not in the active toplevel (e.g., a modal dialog is running).
+    /// </summary>
+    private void RefreshTreeUi(TreeNodeModel? nodeToRefresh = null)
+    {
+        if (!IsInActiveTopLevel())
+        {
+            return;
+        }
+
+        if (nodeToRefresh is not null)
+        {
+            _treeView.RefreshObject(nodeToRefresh);
+        }
+
+        _treeView.SetNeedsDraw();
+    }
+
+    private bool IsInActiveTopLevel()
+    {
+        // Walk up to the toplevel that contains this panel
+        View current = this;
+        while (current.SuperView is not null)
+        {
+            current = current.SuperView;
+        }
+
+        // Only redraw if our toplevel is the active one (avoids touching background UIs during modal dialogs)
+        return ReferenceEquals(current, Application.Top);
     }
 }

@@ -115,6 +115,8 @@ public class MainWindow : Window
         // Wire up events
         _treePanel.NodeSelected += OnNodeSelected;
         _treePanel.AddConnectionClicked += ShowAddConnectionDialog;
+        _treePanel.EditConnectionClicked += ShowEditConnectionDialog;
+        _treePanel.DeleteConnectionClicked += ShowDeleteConnectionConfirmation;
         _treePanel.RefreshStarted += () =>
         {
             _isTreeRefreshing = true;
@@ -147,55 +149,59 @@ public class MainWindow : Window
             StartMessageListRefreshTimer();
         }
 
-        // Global keyboard shortcuts via Application.KeyDown (fires before view handlers)
-        Application.KeyDown += OnApplicationKeyDown;
+        // Define commands for panel navigation
+        // Using existing Command enum values for our custom navigation actions
+        // Guard: skip if focus is on text input (shouldn't happen with Application.KeyBindings, but safety check)
+        AddCommand(Command.StartOfPage, _ =>  // E - Explorer
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(40);
+            _treePanel.SetFocus();
+            return true;
+        });
+        AddCommand(Command.EndOfPage, _ =>  // M - Messages
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(40);
+            _messageList.SetFocus();
+            return true;
+        });
+        AddCommand(Command.PageUp, _ =>  // D - Details
+        {
+            if (IsFocusOnTextInput()) return false;
+            SetMessageListHeight(20);
+            _messageDetail.SetFocus();
+            return true;
+        });
+        AddCommand(Command.PageDown, _ =>  // P - Properties tab (only in detail)
+        {
+            if (IsFocusOnTextInput()) return false;
+            if (IsFocusWithinMessageDetail()) { _messageDetail.SwitchToTab(0); return true; }
+            return false;
+        });
+        AddCommand(Command.PageLeft, _ =>  // B - Body tab (only in detail)
+        {
+            if (IsFocusOnTextInput()) return false;
+            if (IsFocusWithinMessageDetail()) { _messageDetail.SwitchToTab(1); return true; }
+            return false;
+        });
+
+        // Register application-scoped key bindings (fire AFTER views process keys)
+        // This allows TextField/TextView to consume keys for text input first
+        Initialized += (_, _) =>
+        {
+            Application.KeyBindings.Add(Key.E, this, Command.StartOfPage);
+            Application.KeyBindings.Add(Key.M, this, Command.EndOfPage);
+            Application.KeyBindings.Add(Key.D, this, Command.PageUp);
+            Application.KeyBindings.Add(Key.P, this, Command.PageDown);
+            Application.KeyBindings.Add(Key.B, this, Command.PageLeft);
+        };
 
         // Dynamic panel sizing: 20/80 when Details is focused, 40/60 otherwise
-        // Only react to user-initiated focus changes via keyboard (M/D/E handled in OnApplicationKeyDown)
-        // and mouse clicks on the panels
+        // React to user-initiated focus changes via keyboard and mouse clicks
         _treePanel.MouseClick += (s, e) => SetMessageListHeight(40);
         _messageList.MouseClick += (s, e) => SetMessageListHeight(40);
         _messageDetail.MouseClick += (s, e) => SetMessageListHeight(20);
-    }
-
-    private void OnApplicationKeyDown(object? sender, Key key)
-    {
-        // Skip if modifiers are held (except shift for ?)
-        var noMods = !key.IsCtrl && !key.IsAlt && !key.IsShift;
-
-        // Panel navigation: E/M/D (single letters, no modifiers) - global
-        if (key.KeyCode == KeyCode.E && noMods)
-        {
-            SetMessageListHeight(40);
-            _treePanel.SetFocus();
-            key.Handled = true;
-            return;
-        }
-        if (key.KeyCode == KeyCode.M && noMods)
-        {
-            SetMessageListHeight(40);
-            _messageList.SetFocus();
-            key.Handled = true;
-            return;
-        }
-        if (key.KeyCode == KeyCode.D && noMods)
-        {
-            SetMessageListHeight(20);
-            _messageDetail.SetFocus();
-            key.Handled = true;
-            return;
-        }
-
-        // Tab switching: P/B - only when focus is within Details panel
-        if ((key.KeyCode == KeyCode.P || key.KeyCode == KeyCode.B) && noMods)
-        {
-            if (IsFocusWithinMessageDetail())
-            {
-                _messageDetail.SwitchToTab(key.KeyCode == KeyCode.P ? 0 : 1);
-                key.Handled = true;
-                return;
-            }
-        }
     }
 
     private bool IsFocusWithinMessageDetail()
@@ -214,6 +220,12 @@ public class MainWindow : Window
             current = current.SuperView;
         }
         return false;
+    }
+
+    private static bool IsFocusOnTextInput()
+    {
+        var focused = Application.Navigation?.GetFocused();
+        return focused is TextField or TextView;
     }
 
     private void SetMessageListHeight(int percent)
@@ -282,6 +294,111 @@ public class MainWindow : Window
                 catch (Exception ex)
                 {
                     ShowError("Failed to save connection", ex);
+                }
+            });
+        }
+    }
+
+    private void ShowEditConnectionDialog(string connectionName)
+    {
+        var existing = _connectionStore.GetByName(connectionName);
+        if (existing is null)
+        {
+            MessageBox.ErrorQuery("Error", $"Connection '{connectionName}' not found", "OK");
+            return;
+        }
+
+        _isModalOpen = true;
+        var dialog = new AddConnectionDialog(existing.Name, existing.ConnectionString);
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Confirmed && dialog.ConnectionName is not null && dialog.ConnectionString is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // If name changed, remove the old one first
+                    if (dialog.OriginalName is not null &&
+                        !dialog.OriginalName.Equals(dialog.ConnectionName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _connectionStore.RemoveAsync(dialog.OriginalName);
+                    }
+
+                    var connection = new ServiceBusConnection(dialog.ConnectionName, dialog.ConnectionString);
+                    await _connectionStore.AddAsync(connection);
+                    Application.Invoke(() => _treePanel.RefreshConnections());
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Failed to save connection", ex);
+                }
+            });
+        }
+    }
+
+    private void ShowDeleteConnectionConfirmation(string connectionName)
+    {
+        _isModalOpen = true;
+        var confirmed = false;
+
+        var dialog = new Dialog
+        {
+            Title = "Delete Connection",
+            Width = 50,
+            Height = 7
+        };
+
+        var messageLabel = new Label
+        {
+            X = 1,
+            Y = 1,
+            Text = $"Are you sure you want to delete '{connectionName}'?"
+        };
+
+        var deleteButton = new Button { Text = "Delete" };
+        deleteButton.Accepting += (s, e) =>
+        {
+            confirmed = true;
+            Application.RequestStop();
+        };
+
+        var cancelButton = new Button { Text = "Cancel", IsDefault = true };
+        cancelButton.Accepting += (s, e) =>
+        {
+            Application.RequestStop();
+        };
+
+        dialog.Add(messageLabel);
+        dialog.AddButton(deleteButton);
+        dialog.AddButton(cancelButton);
+
+        // Escape to close
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (confirmed)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _connectionStore.RemoveAsync(connectionName);
+                    Application.Invoke(() => _treePanel.RefreshConnections());
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Failed to delete connection", ex);
                 }
             });
         }
@@ -601,6 +718,9 @@ public class MainWindow : Window
         _countdownDisplayTimer = new System.Timers.Timer(1000);
         _countdownDisplayTimer.Elapsed += (s, e) =>
         {
+            // Skip UI updates when a modal dialog is open to avoid cursor/redraw issues
+            if (_isModalOpen) return;
+
             if (_treeRefreshTimer != null)
             {
                 _treeCountdown = Math.Max(0, _treeCountdown - 1);
@@ -702,7 +822,13 @@ public class MainWindow : Window
     {
         if (disposing)
         {
-            Application.KeyDown -= OnApplicationKeyDown;
+            // Remove application-scoped key bindings
+            Application.KeyBindings.Remove(Key.E);
+            Application.KeyBindings.Remove(Key.M);
+            Application.KeyBindings.Remove(Key.D);
+            Application.KeyBindings.Remove(Key.P);
+            Application.KeyBindings.Remove(Key.B);
+
             StopTreeRefreshTimer();
             StopMessageListRefreshTimer();
             _countdownDisplayTimer?.Stop();

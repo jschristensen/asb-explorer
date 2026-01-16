@@ -1,5 +1,3 @@
-.worktrees/
-
 # Build outputs
 bin/
 obj/
@@ -17,7 +15,6 @@ Thumbs.db
 # Publish output
 publish/
 publish-test/
-.worktrees/
-.worktrees/
-.worktrees/
+
+# Git worktrees
 .worktrees/

@@ -8,6 +8,7 @@ public class MessageListView : FrameView
 {
     private readonly TableView _tableView;
     private readonly CheckBox _autoRefreshCheckbox;
+    private readonly Label _countdownLabel;
     private readonly DataTable _dataTable;
     private IReadOnlyList<PeekedMessage> _messages = [];
     private readonly Button _requeueButton;
@@ -55,9 +56,16 @@ public class MessageListView : FrameView
         _autoRefreshCheckbox = new CheckBox
         {
             Text = "Auto-refresh",
-            X = Pos.AnchorEnd(16),
+            X = Pos.AnchorEnd(22),
             Y = 0,
             CheckedState = CheckState.UnChecked
+        };
+
+        _countdownLabel = new Label
+        {
+            Text = "",
+            X = Pos.Right(_autoRefreshCheckbox),
+            Y = 0
         };
 
         _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
@@ -158,16 +166,7 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_autoRefreshCheckbox, _requeueButton, _clearAllButton, _tableView);
-
-        // Ensure TableView gets focus when this view is focused
-        HasFocusChanged += (s, e) =>
-        {
-            if (e.NewValue && !_tableView.HasFocus)
-            {
-                _tableView.SetFocus();
-            }
-        };
+        Add(_autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
     }
 
     protected override bool OnKeyDown(Key key)
@@ -342,13 +341,13 @@ public class MessageListView : FrameView
         _autoRefreshCheckbox.CheckedState = isChecked ? CheckState.Checked : CheckState.UnChecked;
         if (!isChecked)
         {
-            _autoRefreshCheckbox.Text = "Auto-refresh";
+            _countdownLabel.Text = "";
         }
     }
 
     public void UpdateAutoRefreshCountdown(int secondsRemaining)
     {
-        _autoRefreshCheckbox.Text = $"Auto-refresh ({secondsRemaining}s)";
+        _countdownLabel.Text = $"({secondsRemaining}s)";
     }
 }
 
