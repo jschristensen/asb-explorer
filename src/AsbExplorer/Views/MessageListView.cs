@@ -16,11 +16,15 @@ public class MessageListView : FrameView
     private bool _isDeadLetterMode;
     private readonly HashSet<long> _selectedSequenceNumbers = [];
     private string? _currentEntityName;
+    private readonly Label _limitLabel;
+    private readonly ComboBox _limitDropdown;
+    private static readonly int[] LimitOptions = [100, 500, 1000, 2500, 5000];
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
     public event Action<PeekedMessage>? EditMessageRequested;
     public event Action? RequeueSelectedRequested;
+    public event Action<int>? LimitChanged;
 
     public bool IsDeadLetterMode
     {
@@ -56,7 +60,7 @@ public class MessageListView : FrameView
         _autoRefreshCheckbox = new CheckBox
         {
             Text = "Auto-refresh",
-            X = Pos.AnchorEnd(22),
+            X = Pos.AnchorEnd(20),
             Y = 0,
             CheckedState = CheckState.UnChecked
         };
@@ -66,6 +70,32 @@ public class MessageListView : FrameView
             Text = "",
             X = Pos.Right(_autoRefreshCheckbox),
             Y = 0
+        };
+
+        _limitLabel = new Label
+        {
+            Text = "Limit:",
+            X = Pos.AnchorEnd(38),
+            Y = 0
+        };
+
+        _limitDropdown = new ComboBox
+        {
+            X = Pos.Right(_limitLabel) + 1,
+            Y = 0,
+            Width = 6,
+            Height = 1,
+            ReadOnly = true,
+            Source = new ListWrapper<string>(new System.Collections.ObjectModel.ObservableCollection<string>(LimitOptions.Select(x => x.ToString())))
+        };
+        _limitDropdown.SelectedItem = 0; // Default to 100
+
+        _limitDropdown.SelectedItemChanged += (s, e) =>
+        {
+            if (e.Item >= 0 && e.Item < LimitOptions.Length)
+            {
+                LimitChanged?.Invoke(LimitOptions[e.Item]);
+            }
         };
 
         _autoRefreshCheckbox.CheckedStateChanging += (s, e) =>
@@ -168,7 +198,7 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
+        Add(_limitLabel, _limitDropdown, _autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
     }
 
     protected override bool OnKeyDown(Key key)
