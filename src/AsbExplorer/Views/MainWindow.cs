@@ -33,6 +33,7 @@ public class MainWindow : Window
     private bool _isModalOpen;
 
     private TreeNodeModel? _currentNode;
+    private int _currentMessageLimit = 100;
 
     public MainWindow(
         ServiceBusConnectionService connectionService,
@@ -130,6 +131,7 @@ public class MainWindow : Window
         _messageList.MessageSelected += OnMessageSelected;
         _messageList.EditMessageRequested += OnEditMessageRequested;
         _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
+        _messageList.LimitChanged += OnMessageLimitChanged;
 
         // Initialize auto-refresh states from settings
         _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
@@ -447,7 +449,8 @@ public class MainWindow : Window
                 node.ConnectionName,
                 node.EntityPath!,
                 topicName,
-                isDeadLetter
+                isDeadLetter,
+                _currentMessageLimit
             ));
 
             _messageList.SetMessages(messages);
@@ -605,6 +608,15 @@ public class MainWindow : Window
             _messageList.ClearSelection();
             RefreshCurrentNode();
             _treePanel.RefreshAllCounts();
+        }
+    }
+
+    private void OnMessageLimitChanged(int limit)
+    {
+        _currentMessageLimit = limit;
+        if (_currentNode != null)
+        {
+            OnNodeSelected(_currentNode);
         }
     }
 
