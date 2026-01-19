@@ -16,11 +16,19 @@ public class MessageListView : FrameView
     private bool _isDeadLetterMode;
     private readonly HashSet<long> _selectedSequenceNumbers = [];
     private string? _currentEntityName;
+    private readonly Button _limitButton;
+    private int _currentLimitIndex;
+    private static readonly int[] LimitOptions = [100, 500, 1000, 2500, 5000];
+    private readonly Label _messageCountLabel;
+    private long? _totalMessageCount;
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
     public event Action<PeekedMessage>? EditMessageRequested;
     public event Action? RequeueSelectedRequested;
+    public event Action<int>? LimitChanged;
+
+    public int CurrentLimit => LimitOptions[_currentLimitIndex];
 
     public bool IsDeadLetterMode
     {
@@ -56,7 +64,7 @@ public class MessageListView : FrameView
         _autoRefreshCheckbox = new CheckBox
         {
             Text = "Auto-refresh",
-            X = Pos.AnchorEnd(22),
+            X = Pos.AnchorEnd(20),
             Y = 0,
             CheckedState = CheckState.UnChecked
         };
@@ -65,6 +73,22 @@ public class MessageListView : FrameView
         {
             Text = "",
             X = Pos.Right(_autoRefreshCheckbox),
+            Y = 0
+        };
+
+        _limitButton = new Button
+        {
+            Text = $"Limit: {LimitOptions[0]}",
+            X = Pos.Left(_autoRefreshCheckbox) - 14,
+            Y = 0
+        };
+
+        _limitButton.Accepting += (s, e) => ShowLimitDialog();
+
+        _messageCountLabel = new Label
+        {
+            Text = "",
+            X = Pos.Left(_limitButton) - 12,
             Y = 0
         };
 
@@ -168,7 +192,103 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
+        Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
+    }
+
+    private void ShowLimitDialog()
+    {
+        int? selectedLimit = null;
+
+        // Calculate screen position below the limit button
+        var buttonScreenPos = _limitButton.FrameToScreen().Location;
+        var screenX = buttonScreenPos.X;
+        var screenY = buttonScreenPos.Y + 1; // Just below the button
+
+        var dialog = new Dialog
+        {
+            Title = "",
+            Width = 10,
+            Height = LimitOptions.Length + 2,
+            X = screenX,
+            Y = screenY
+        };
+
+        for (var i = 0; i < LimitOptions.Length; i++)
+        {
+            var limit = LimitOptions[i];
+            var isCurrentLimit = i == _currentLimitIndex;
+            var button = new Button
+            {
+                X = 0,
+                Y = i,
+                Text = isCurrentLimit ? $">{limit}" : $" {limit}",
+                NoPadding = true
+            };
+            var capturedLimit = limit;
+            var capturedIndex = i;
+            button.Accepting += (s, e) =>
+            {
+                selectedLimit = capturedLimit;
+                _currentLimitIndex = capturedIndex;
+                Application.RequestStop();
+            };
+            dialog.Add(button);
+        }
+
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        void onMouseEvent(object? sender, MouseEventArgs e)
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
+            {
+                var dialogFrame = dialog.Frame;
+                if (e.ScreenPosition.X < dialogFrame.X || e.ScreenPosition.X >= dialogFrame.X + dialogFrame.Width ||
+                    e.ScreenPosition.Y < dialogFrame.Y || e.ScreenPosition.Y >= dialogFrame.Y + dialogFrame.Height)
+                {
+                    Application.RequestStop();
+                }
+            }
+        }
+
+        Application.MouseEvent += onMouseEvent;
+        try
+        {
+            Application.Run(dialog);
+        }
+        finally
+        {
+            Application.MouseEvent -= onMouseEvent;
+        }
+
+        if (selectedLimit.HasValue)
+        {
+            _limitButton.Text = $"Limit: {selectedLimit.Value}";
+            LimitChanged?.Invoke(selectedLimit.Value);
+        }
+    }
+
+    public void SetTotalMessageCount(long? total)
+    {
+        _totalMessageCount = total;
+    }
+
+    private void UpdateMessageCountLabel()
+    {
+        if (_totalMessageCount.HasValue)
+        {
+            _messageCountLabel.Text = $"{_messages.Count}/{_totalMessageCount}";
+        }
+        else
+        {
+            _messageCountLabel.Text = _messages.Count > 0 ? $"{_messages.Count}" : "";
+        }
     }
 
     protected override bool OnKeyDown(Key key)
@@ -327,6 +447,7 @@ public class MessageListView : FrameView
         _tableView.Style.ExpandLastColumn = true;  // ContentType expands
 
         _tableView.Table = new DataTableSource(_dataTable);
+        UpdateMessageCountLabel();
     }
 
     public void Clear()
@@ -335,7 +456,9 @@ public class MessageListView : FrameView
         _selectedSequenceNumbers.Clear();
         _dataTable.Rows.Clear();
         _tableView.Table = new DataTableSource(_dataTable);
+        _totalMessageCount = null;
         UpdateRequeueButtonVisibility();
+        UpdateMessageCountLabel();
     }
 
     public void SetAutoRefreshChecked(bool isChecked)

@@ -14,6 +14,7 @@ public class MainWindow : Window
     private readonly MessageDetailView _messageDetail;
     private readonly MessagePeekService _peekService;
     private readonly IMessageRequeueService _requeueService;
+    private readonly ServiceBusConnectionService _connectionService;
     private readonly MessageFormatter _formatter;
     private readonly FavoritesStore _favoritesStore;
     private readonly ConnectionStore _connectionStore;
@@ -33,6 +34,7 @@ public class MainWindow : Window
     private bool _isModalOpen;
 
     private TreeNodeModel? _currentNode;
+    private int _currentMessageLimit = 100;
 
     public MainWindow(
         ServiceBusConnectionService connectionService,
@@ -46,6 +48,7 @@ public class MainWindow : Window
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
         _requeueService = requeueService;
+        _connectionService = connectionService;
         _formatter = formatter;
         _favoritesStore = favoritesStore;
         _connectionStore = connectionStore;
@@ -130,6 +133,7 @@ public class MainWindow : Window
         _messageList.MessageSelected += OnMessageSelected;
         _messageList.EditMessageRequested += OnEditMessageRequested;
         _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
+        _messageList.LimitChanged += OnMessageLimitChanged;
 
         // Initialize auto-refresh states from settings
         _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
@@ -443,14 +447,20 @@ public class MainWindow : Window
                 ? node.ParentEntityPath
                 : null;
 
-            var messages = await Task.Run(() => _peekService.PeekMessagesAsync(
+            var messagesTask = Task.Run(() => _peekService.PeekMessagesAsync(
                 node.ConnectionName,
                 node.EntityPath!,
                 topicName,
-                isDeadLetter
+                isDeadLetter,
+                _currentMessageLimit
             ));
 
-            _messageList.SetMessages(messages);
+            var totalCountTask = GetTotalMessageCountAsync(node, topicName, isDeadLetter);
+
+            await Task.WhenAll(messagesTask, totalCountTask);
+
+            _messageList.SetTotalMessageCount(totalCountTask.Result);
+            _messageList.SetMessages(messagesTask.Result);
         }
         catch (Exception ex)
         {
@@ -605,6 +615,38 @@ public class MainWindow : Window
             _messageList.ClearSelection();
             RefreshCurrentNode();
             _treePanel.RefreshAllCounts();
+        }
+    }
+
+    private void OnMessageLimitChanged(int limit)
+    {
+        _currentMessageLimit = limit;
+        if (_currentNode != null)
+        {
+            OnNodeSelected(_currentNode);
+        }
+    }
+
+    private async Task<long?> GetTotalMessageCountAsync(TreeNodeModel node, string? topicName, bool isDeadLetter)
+    {
+        try
+        {
+            return node.NodeType switch
+            {
+                TreeNodeType.Queue when !isDeadLetter =>
+                    await _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!),
+                TreeNodeType.Queue or TreeNodeType.QueueDeadLetter when isDeadLetter =>
+                    await _connectionService.GetQueueDlqMessageCountAsync(node.ConnectionName!, node.EntityPath!),
+                TreeNodeType.TopicSubscription when !isDeadLetter =>
+                    await _connectionService.GetSubscriptionMessageCountAsync(node.ConnectionName!, topicName!, node.EntityPath!),
+                TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter when isDeadLetter =>
+                    await _connectionService.GetSubscriptionDlqMessageCountAsync(node.ConnectionName!, topicName!, node.EntityPath!),
+                _ => null
+            };
+        }
+        catch
+        {
+            return null;
         }
     }
 

@@ -18,3 +18,4 @@ publish-test/
 
 # Git worktrees
 .worktrees/
+.worktrees/
