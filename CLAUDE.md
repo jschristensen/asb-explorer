@@ -26,3 +26,11 @@ dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj
 ## Central Package Management
 
 Use CPM (Directory.Packages.props) for version management. Do not specify versions in .csproj files.
+
+## Releases
+
+Release new versions by creating and pushing a git tag:
+
+```bash
+git tag v0.1.x && git push origin v0.1.x
+```

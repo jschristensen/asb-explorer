@@ -28,9 +28,7 @@ await settingsStore.LoadAsync();
 // Suppress Terminal.Gui config warnings about $schema property
 ConfigurationManager.ThrowOnJsonErrors = false;
 
-// Use platform-specific driver for better resize performance (NetDriver trimmed out in published builds)
-var driverName = OperatingSystem.IsWindows() ? "WindowsDriver" : "CursesDriver";
-Application.Init(driver: null, driverName: driverName);
+Application.Init(driver: null, driverName: "NetDriver");  // NetDriver for better resize + async support
 
 // Set Ctrl+Q as the quit key (v2 default is Esc)
 Application.QuitKey = Key.Q.WithCtrl;

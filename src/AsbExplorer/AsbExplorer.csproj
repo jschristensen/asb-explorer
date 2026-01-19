@@ -16,11 +16,12 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
-  <!-- Preserve Azure SDK assemblies from trimming (they use reflection internally) -->
+  <!-- Preserve assemblies from trimming (they use reflection internally) -->
   <ItemGroup>
     <TrimmerRootAssembly Include="Azure.Messaging.ServiceBus" />
     <TrimmerRootAssembly Include="Azure.Core" />
     <TrimmerRootAssembly Include="Microsoft.Azure.Amqp" />
+    <TrimmerRootAssembly Include="Terminal.Gui" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Terminal.Gui" />
