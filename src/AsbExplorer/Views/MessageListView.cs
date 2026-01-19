@@ -108,6 +108,8 @@ public class MessageListView : FrameView
             TabStop = TabBehavior.TabStop
         };
 
+        _tableView.Style.AlwaysShowHeaders = true;
+
         _tableView.CellActivated += (s, e) =>
         {
             if (e.Row >= 0 && e.Row < _messages.Count)
