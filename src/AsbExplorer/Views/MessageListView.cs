@@ -84,10 +84,10 @@ public class MessageListView : FrameView
             X = Pos.Right(_limitLabel) + 1,
             Y = 0,
             Width = 6,
-            Height = 1,
-            ReadOnly = true,
-            Source = new ListWrapper<string>(new System.Collections.ObjectModel.ObservableCollection<string>(LimitOptions.Select(x => x.ToString())))
+            Height = 6,
+            ReadOnly = true
         };
+        _limitDropdown.SetSource(new System.Collections.ObjectModel.ObservableCollection<string>(LimitOptions.Select(x => x.ToString())));
         _limitDropdown.SelectedItem = 0; // Default to 100
 
         _limitDropdown.SelectedItemChanged += (s, e) =>
