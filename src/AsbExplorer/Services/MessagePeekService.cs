@@ -53,11 +53,31 @@ public class MessagePeekService : IAsyncDisposable
 
         await using (receiver)
         {
-            var messages = fromSequenceNumber.HasValue
-                ? await receiver.PeekMessagesAsync(maxMessages, fromSequenceNumber.Value)
-                : await receiver.PeekMessagesAsync(maxMessages);
+            // Azure Service Bus SDK limits PeekMessagesAsync to 250 messages per call.
+            // To retrieve more, we need to paginate using fromSequenceNumber.
+            const int batchSize = 250;
+            var allMessages = new List<ServiceBusReceivedMessage>();
+            long? currentFromSequence = fromSequenceNumber;
 
-            return messages.Select(m => new PeekedMessage(
+            while (allMessages.Count < maxMessages)
+            {
+                var remaining = maxMessages - allMessages.Count;
+                var toFetch = Math.Min(remaining, batchSize);
+
+                var batch = currentFromSequence.HasValue
+                    ? await receiver.PeekMessagesAsync(toFetch, currentFromSequence.Value)
+                    : await receiver.PeekMessagesAsync(toFetch);
+
+                if (batch.Count == 0)
+                    break;
+
+                allMessages.AddRange(batch);
+
+                // Next batch starts after the last message's sequence number
+                currentFromSequence = batch[^1].SequenceNumber + 1;
+            }
+
+            return allMessages.Select(m => new PeekedMessage(
                 MessageId: m.MessageId,
                 SequenceNumber: m.SequenceNumber,
                 EnqueuedTime: m.EnqueuedTime,
