@@ -28,7 +28,7 @@ await settingsStore.LoadAsync();
 // Suppress Terminal.Gui config warnings about $schema property
 ConfigurationManager.ThrowOnJsonErrors = false;
 
-Application.Init();
+Application.Init(driver: null, driverName: "NetDriver");  // Use NetDriver for better resize performance
 
 // Set Ctrl+Q as the quit key (v2 default is Esc)
 Application.QuitKey = Key.Q.WithCtrl;
