@@ -135,4 +135,45 @@ public class DisplayHelpersTests
             Assert.Equal(28, result); // 26 + 2 padding
         }
     }
+
+    public class FormatTimeSpanTests
+    {
+        [Theory]
+        [InlineData(30, "30s")]
+        [InlineData(90, "1m 30s")]
+        [InlineData(3600, "1h")]
+        [InlineData(3661, "1h 1m")]
+        [InlineData(86400, "1d")]
+        [InlineData(90061, "1d 1h")]
+        public void FormatTimeSpan_FormatsCorrectly(int totalSeconds, string expected)
+        {
+            var ts = TimeSpan.FromSeconds(totalSeconds);
+            Assert.Equal(expected, DisplayHelpers.FormatTimeSpan(ts));
+        }
+    }
+
+    public class FormatScheduledTimeTests
+    {
+        [Fact]
+        public void FormatScheduledTime_Null_ReturnsDash()
+        {
+            Assert.Equal("-", DisplayHelpers.FormatScheduledTime(null));
+        }
+
+        [Fact]
+        public void FormatScheduledTime_Future_ReturnsRelative()
+        {
+            var future = DateTimeOffset.UtcNow.AddMinutes(5);
+            var result = DisplayHelpers.FormatScheduledTime(future);
+            Assert.Contains("in", result);
+        }
+
+        [Fact]
+        public void FormatScheduledTime_Past_ReturnsRelative()
+        {
+            var past = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var result = DisplayHelpers.FormatScheduledTime(past);
+            Assert.Contains("ago", result);
+        }
+    }
 }

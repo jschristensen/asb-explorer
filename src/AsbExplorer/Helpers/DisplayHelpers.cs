@@ -43,4 +43,51 @@ public static class DisplayHelpers
 
         return Math.Max(maxLength + PropertyColumnPadding, MinPropertyColumnWidth);
     }
+
+    public static string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts.TotalDays >= 1)
+        {
+            var days = (int)ts.TotalDays;
+            var hours = ts.Hours;
+            return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
+        }
+        if (ts.TotalHours >= 1)
+        {
+            var hours = (int)ts.TotalHours;
+            var minutes = ts.Minutes;
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+        if (ts.TotalMinutes >= 1)
+        {
+            var minutes = (int)ts.TotalMinutes;
+            var seconds = ts.Seconds;
+            return seconds > 0 ? $"{minutes}m {seconds}s" : $"{minutes}m";
+        }
+        return $"{(int)ts.TotalSeconds}s";
+    }
+
+    public static string FormatScheduledTime(DateTimeOffset? time)
+    {
+        if (!time.HasValue)
+            return "-";
+
+        var diff = time.Value - DateTimeOffset.UtcNow;
+        if (diff.TotalSeconds > 0)
+        {
+            // Future
+            return diff.TotalMinutes switch
+            {
+                < 1 => "in <1m",
+                < 60 => $"in {(int)diff.TotalMinutes}m",
+                < 1440 => $"in {(int)diff.TotalHours}h",
+                _ => $"in {(int)diff.TotalDays}d"
+            };
+        }
+        else
+        {
+            // Past - use existing FormatRelativeTime
+            return FormatRelativeTime(time.Value);
+        }
+    }
 }
