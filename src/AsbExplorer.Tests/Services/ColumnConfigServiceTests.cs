@@ -54,4 +54,62 @@ public class ColumnConfigServiceTests
 
         Assert.All(columns, c => Assert.False(c.IsApplicationProperty));
     }
+
+    [Fact]
+    public void MergeDiscoveredProperties_AddsNewKeysAsHidden()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns = _service.GetDefaultColumns(),
+            DiscoveredProperties = []
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["OrderId", "CustomerId"]);
+
+        Assert.Contains(settings.DiscoveredProperties, p => p == "OrderId");
+        Assert.Contains(settings.DiscoveredProperties, p => p == "CustomerId");
+
+        var orderIdCol = settings.Columns.Single(c => c.Name == "OrderId");
+        Assert.False(orderIdCol.Visible);
+        Assert.True(orderIdCol.IsApplicationProperty);
+    }
+
+    [Fact]
+    public void MergeDiscoveredProperties_PreservesExistingVisibility()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns =
+            [
+                .._service.GetDefaultColumns(),
+                new ColumnConfig("OrderId", true, true)
+            ],
+            DiscoveredProperties = ["OrderId"]
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["OrderId", "CustomerId"]);
+
+        var orderIdCol = settings.Columns.Single(c => c.Name == "OrderId");
+        Assert.True(orderIdCol.Visible); // Preserved
+    }
+
+    [Fact]
+    public void MergeDiscoveredProperties_PreservesColumnOrder()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns =
+            [
+                .._service.GetDefaultColumns(),
+                new ColumnConfig("ExistingProp", true, true)
+            ],
+            DiscoveredProperties = ["ExistingProp"]
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["NewProp"]);
+
+        var existingIndex = settings.Columns.FindIndex(c => c.Name == "ExistingProp");
+        var newIndex = settings.Columns.FindIndex(c => c.Name == "NewProp");
+        Assert.True(newIndex > existingIndex); // New props added at end
+    }
 }

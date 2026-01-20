@@ -25,4 +25,16 @@ public class ColumnConfigService
             .Select(c => new ColumnConfig(c.Name, c.DefaultVisible))
             .ToList();
     }
+
+    public void MergeDiscoveredProperties(EntityColumnSettings settings, IEnumerable<string> newKeys)
+    {
+        foreach (var key in newKeys)
+        {
+            if (settings.DiscoveredProperties.Add(key))
+            {
+                // New property - add as hidden column at end
+                settings.Columns.Add(new ColumnConfig(key, false, true));
+            }
+        }
+    }
 }
