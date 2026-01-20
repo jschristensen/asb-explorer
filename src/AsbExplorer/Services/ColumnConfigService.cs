@@ -37,4 +37,25 @@ public class ColumnConfigService
             }
         }
     }
+
+    public (bool IsValid, string? Error) ValidateConfig(List<ColumnConfig> columns)
+    {
+        if (!columns.Any(c => c.Visible))
+        {
+            return (false, "At least one column must be visible.");
+        }
+
+        var seqNumIndex = columns.FindIndex(c => c.Name == "SequenceNumber");
+        if (seqNumIndex != 0)
+        {
+            return (false, "SequenceNumber must be the first column.");
+        }
+
+        if (!columns[0].Visible)
+        {
+            return (false, "SequenceNumber must be visible.");
+        }
+
+        return (true, null);
+    }
 }

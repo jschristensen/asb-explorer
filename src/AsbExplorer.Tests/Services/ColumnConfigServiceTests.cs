@@ -112,4 +112,60 @@ public class ColumnConfigServiceTests
         var newIndex = settings.Columns.FindIndex(c => c.Name == "NewProp");
         Assert.True(newIndex > existingIndex); // New props added at end
     }
+
+    [Fact]
+    public void ValidateConfig_RequiresAtLeastOneVisible()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", false),
+            new("MessageId", false)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("at least one", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateConfig_SequenceNumberMustBeFirst()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("MessageId", true),
+            new("SequenceNumber", true)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("SequenceNumber", error);
+    }
+
+    [Fact]
+    public void ValidateConfig_SequenceNumberMustBeVisible()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", false),
+            new("MessageId", true)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("SequenceNumber", error);
+    }
+
+    [Fact]
+    public void ValidateConfig_ValidConfigReturnsTrue()
+    {
+        var columns = _service.GetDefaultColumns();
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
 }
