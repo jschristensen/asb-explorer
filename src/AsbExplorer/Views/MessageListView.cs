@@ -1,6 +1,7 @@
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Helpers;
+using AsbExplorer.Services;
 
 namespace AsbExplorer.Views;
 
@@ -21,6 +22,12 @@ public class MessageListView : FrameView
     private static readonly int[] LimitOptions = [100, 500, 1000, 2500, 5000];
     private readonly Label _messageCountLabel;
     private long? _totalMessageCount;
+    private readonly SettingsStore _settingsStore;
+    private readonly ColumnConfigService _columnConfigService;
+    private readonly ApplicationPropertyScanner _propertyScanner;
+    private string? _currentNamespace;
+    private string? _currentEntityPath;
+    private EntityColumnSettings? _currentColumnSettings;
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
@@ -55,8 +62,39 @@ public class MessageListView : FrameView
         Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
     }
 
-    public MessageListView()
+    public void SetEntity(string? @namespace, string? entityPath, string? displayName)
     {
+        // Clear selection when switching to a different entity
+        if (@namespace != _currentNamespace || entityPath != _currentEntityPath)
+        {
+            _selectedSequenceNumbers.Clear();
+            RefreshCheckboxDisplay();
+            UpdateRequeueButtonVisibility();
+        }
+
+        _currentNamespace = @namespace;
+        _currentEntityPath = entityPath;
+        _currentEntityName = displayName;
+        Title = string.IsNullOrEmpty(displayName) ? "Messages" : $"Messages: {displayName}";
+
+        // Load column settings for this entity
+        _currentColumnSettings = @namespace != null && entityPath != null
+            ? _settingsStore.GetEntityColumns(@namespace, entityPath)
+            : null;
+
+        _currentColumnSettings ??= new EntityColumnSettings
+        {
+            Columns = _columnConfigService.GetDefaultColumns(),
+            DiscoveredProperties = []
+        };
+    }
+
+    public MessageListView(SettingsStore settingsStore, ColumnConfigService columnConfigService, ApplicationPropertyScanner propertyScanner)
+    {
+        _settingsStore = settingsStore;
+        _columnConfigService = columnConfigService;
+        _propertyScanner = propertyScanner;
+
         Title = "Messages";
         CanFocus = true;
         TabStop = TabBehavior.TabGroup;
@@ -193,6 +231,20 @@ public class MessageListView : FrameView
             }
         };
 
+        // Right-click on header to configure columns
+        _tableView.MouseClick += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button3Clicked))
+            {
+                var cell = _tableView.ScreenToCell(e.Position, out int? headerCol);
+                if (headerCol.HasValue)
+                {
+                    ShowColumnConfigDialog();
+                    e.Handled = true;
+                }
+            }
+        };
+
         Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
     }
 
@@ -272,6 +324,30 @@ public class MessageListView : FrameView
         {
             _limitButton.Text = $"Limit: {selectedLimit.Value}";
             LimitChanged?.Invoke(selectedLimit.Value);
+        }
+    }
+
+    private void ShowColumnConfigDialog()
+    {
+        if (_currentColumnSettings == null || _currentNamespace == null || _currentEntityPath == null)
+            return;
+
+        // Discover new properties from current messages
+        var newProps = _propertyScanner.ScanMessages(_messages);
+        _columnConfigService.MergeDiscoveredProperties(_currentColumnSettings, newProps);
+
+        var dialog = new ColumnConfigDialog(
+            _currentColumnSettings.Columns,
+            _columnConfigService
+        );
+
+        Application.Run(dialog);
+
+        if (dialog.Result != null)
+        {
+            _currentColumnSettings.Columns = dialog.Result;
+            _ = _settingsStore.SaveEntityColumnsAsync(_currentNamespace, _currentEntityPath, _currentColumnSettings);
+            SetMessages(_messages); // Refresh display
         }
     }
 
