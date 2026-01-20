@@ -36,7 +36,37 @@ public class ColumnConfigDialog : Dialog
 
         UpdateListView();
 
-        _listView.OpenSelectedItem += (s, e) => ToggleSelected();
+        // Enter applies the dialog
+        _listView.OpenSelectedItem += (s, e) => ApplyChanges();
+
+        // Space toggles visibility
+        _listView.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Space)
+            {
+                ToggleSelected();
+                e.Handled = true;
+            }
+        };
+
+        // Mouse click on checkbox area toggles visibility
+        _listView.MouseClick += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
+            {
+                // Check if click is in the checkbox area (first 3 chars: "[x]" or "[ ]")
+                if (e.Position.X <= 3)
+                {
+                    var clickedRow = _listView.TopItem + e.Position.Y;
+                    if (clickedRow >= 0 && clickedRow < _columns.Count)
+                    {
+                        _listView.SelectedItem = clickedRow;
+                        ToggleSelected();
+                        e.Handled = true;
+                    }
+                }
+            }
+        };
 
         upButton.Accepting += (s, e) => MoveUp();
         downButton.Accepting += (s, e) => MoveDown();
@@ -52,18 +82,7 @@ public class ColumnConfigDialog : Dialog
         var applyButton = new Button { Text = "Apply", X = Pos.Center() - 10, Y = Pos.AnchorEnd(1) };
         var cancelButton = new Button { Text = "Cancel", X = Pos.Center() + 2, Y = Pos.AnchorEnd(1) };
 
-        applyButton.Accepting += (s, e) =>
-        {
-            var (isValid, error) = _configService.ValidateConfig(_columns);
-            if (!isValid)
-            {
-                _errorLabel.Text = error;
-                return;
-            }
-            Result = _columns;
-            Application.RequestStop();
-        };
-
+        applyButton.Accepting += (s, e) => ApplyChanges();
         cancelButton.Accepting += (s, e) => Application.RequestStop();
 
         Add(upButton, downButton, _listView, _errorLabel, applyButton, cancelButton);
@@ -102,6 +121,18 @@ public class ColumnConfigDialog : Dialog
         _columns[idx] = _columns[idx] with { Visible = !_columns[idx].Visible };
         _errorLabel.Text = "";
         UpdateListView();
+    }
+
+    private void ApplyChanges()
+    {
+        var (isValid, error) = _configService.ValidateConfig(_columns);
+        if (!isValid)
+        {
+            _errorLabel.Text = error;
+            return;
+        }
+        Result = _columns;
+        Application.RequestStop();
     }
 
     private void MoveUp()
