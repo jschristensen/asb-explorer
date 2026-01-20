@@ -19,6 +19,8 @@ public class MainWindow : Window
     private readonly FavoritesStore _favoritesStore;
     private readonly ConnectionStore _connectionStore;
     private readonly SettingsStore _settingsStore;
+    private readonly ColumnConfigService _columnConfigService;
+    private readonly ApplicationPropertyScanner _propertyScanner;
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
     private readonly Shortcut _refreshShortcut;
@@ -46,7 +48,9 @@ public class MainWindow : Window
         IMessageRequeueService requeueService,
         FavoritesStore favoritesStore,
         SettingsStore settingsStore,
-        MessageFormatter formatter)
+        MessageFormatter formatter,
+        ColumnConfigService columnConfigService,
+        ApplicationPropertyScanner propertyScanner)
     {
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
@@ -56,6 +60,8 @@ public class MainWindow : Window
         _favoritesStore = favoritesStore;
         _connectionStore = connectionStore;
         _settingsStore = settingsStore;
+        _columnConfigService = columnConfigService;
+        _propertyScanner = propertyScanner;
 
         X = 0;
         Y = 0;
@@ -84,7 +90,7 @@ public class MainWindow : Window
         };
 
         // Message list (top 40% of right panel)
-        _messageList = new MessageListView
+        _messageList = new MessageListView(settingsStore, columnConfigService, propertyScanner)
         {
             X = 0,
             Y = 0,

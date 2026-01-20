@@ -13,6 +13,8 @@ services.AddSingleton<MessageFormatter>();
 services.AddSingleton<ServiceBusConnectionService>();
 services.AddSingleton<MessagePeekService>();
 services.AddSingleton<IMessageRequeueService, MessageRequeueService>();
+services.AddSingleton<ColumnConfigService>();
+services.AddSingleton<ApplicationPropertyScanner>();
 services.AddSingleton<MainWindow>();
 
 var provider = services.BuildServiceProvider();
