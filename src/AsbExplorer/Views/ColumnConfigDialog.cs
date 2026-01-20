@@ -36,34 +36,17 @@ public class ColumnConfigDialog : Dialog
 
         UpdateListView();
 
-        // Enter applies the dialog
-        _listView.OpenSelectedItem += (s, e) => ApplyChanges();
-
-        // Space toggles visibility
-        _listView.KeyDown += (s, e) =>
-        {
-            if (e.KeyCode == KeyCode.Space)
-            {
-                ToggleSelected();
-                e.Handled = true;
-            }
-        };
-
-        // Mouse click on checkbox area toggles visibility
+        // Single click toggles the clicked row
         _listView.MouseClick += (s, e) =>
         {
             if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
             {
-                // Check if click is in the checkbox area (first 3 chars: "[x]" or "[ ]")
-                if (e.Position.X <= 3)
+                var clickedRow = _listView.TopItem + e.Position.Y;
+                if (clickedRow >= 0 && clickedRow < _columns.Count)
                 {
-                    var clickedRow = _listView.TopItem + e.Position.Y;
-                    if (clickedRow >= 0 && clickedRow < _columns.Count)
-                    {
-                        _listView.SelectedItem = clickedRow;
-                        ToggleSelected();
-                        e.Handled = true;
-                    }
+                    _listView.SelectedItem = clickedRow;
+                    ToggleSelected();
+                    e.Handled = true;
                 }
             }
         };
@@ -157,5 +140,24 @@ public class ColumnConfigDialog : Dialog
         (_columns[idx], _columns[idx + 1]) = (_columns[idx + 1], _columns[idx]);
         UpdateListView();
         _listView.SelectedItem = idx + 1;
+    }
+
+    protected override bool OnKeyDown(Key key)
+    {
+        // Only handle when ListView has focus
+        if (_listView.HasFocus)
+        {
+            if (key.KeyCode == KeyCode.Space)
+            {
+                ToggleSelected();
+                return true;
+            }
+            if (key.KeyCode == KeyCode.Enter)
+            {
+                ApplyChanges();
+                return true;
+            }
+        }
+        return base.OnKeyDown(key);
     }
 }
