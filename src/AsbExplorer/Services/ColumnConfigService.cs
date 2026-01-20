@@ -58,4 +58,9 @@ public class ColumnConfigService
 
         return (true, null);
     }
+
+    public List<ColumnConfig> GetVisibleColumns(List<ColumnConfig> columns)
+    {
+        return columns.Where(c => c.Visible).ToList();
+    }
 }

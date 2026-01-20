@@ -168,4 +168,38 @@ public class ColumnConfigServiceTests
         Assert.True(isValid);
         Assert.Null(error);
     }
+
+    [Fact]
+    public void GetVisibleColumns_FiltersHiddenColumns()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", true),
+            new("MessageId", false),
+            new("Subject", true)
+        };
+
+        var visible = _service.GetVisibleColumns(columns);
+
+        Assert.Equal(2, visible.Count);
+        Assert.Equal("SequenceNumber", visible[0].Name);
+        Assert.Equal("Subject", visible[1].Name);
+    }
+
+    [Fact]
+    public void GetVisibleColumns_PreservesOrder()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", true),
+            new("Subject", true),
+            new("MessageId", true)
+        };
+
+        var visible = _service.GetVisibleColumns(columns);
+
+        Assert.Equal("SequenceNumber", visible[0].Name);
+        Assert.Equal("Subject", visible[1].Name);
+        Assert.Equal("MessageId", visible[2].Name);
+    }
 }
