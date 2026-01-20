@@ -190,16 +190,12 @@ public class MainWindow : Window
             return false;
         });
 
-        // Register application-scoped key bindings (fire AFTER views process keys)
-        // This allows TextField/TextView to consume keys for text input first
-        Initialized += (_, _) =>
-        {
-            Application.KeyBindings.Add(Key.E, this, Command.StartOfPage);
-            Application.KeyBindings.Add(Key.M, this, Command.EndOfPage);
-            Application.KeyBindings.Add(Key.D, this, Command.PageUp);
-            Application.KeyBindings.Add(Key.P, this, Command.PageDown);
-            Application.KeyBindings.Add(Key.B, this, Command.PageLeft);
-        };
+        // Register hotkey bindings (work regardless of which child view has focus)
+        HotKeyBindings.Add(Key.E, Command.StartOfPage);
+        HotKeyBindings.Add(Key.M, Command.EndOfPage);
+        HotKeyBindings.Add(Key.D, Command.PageUp);
+        HotKeyBindings.Add(Key.P, Command.PageDown);
+        HotKeyBindings.Add(Key.B, Command.PageLeft);
 
         // Dynamic panel sizing: 20/80 when Details is focused, 40/60 otherwise
         // React to user-initiated focus changes via keyboard and mouse clicks
@@ -857,6 +853,7 @@ public class MainWindow : Window
             ShowShortcutsDialog();
             return true;
         }
+
         return base.OnKeyDown(key);
     }
 
@@ -864,13 +861,6 @@ public class MainWindow : Window
     {
         if (disposing)
         {
-            // Remove application-scoped key bindings
-            Application.KeyBindings.Remove(Key.E);
-            Application.KeyBindings.Remove(Key.M);
-            Application.KeyBindings.Remove(Key.D);
-            Application.KeyBindings.Remove(Key.P);
-            Application.KeyBindings.Remove(Key.B);
-
             StopTreeRefreshTimer();
             StopMessageListRefreshTimer();
             _countdownDisplayTimer?.Stop();

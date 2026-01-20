@@ -129,7 +129,8 @@ public class MessageListView : FrameView
             FullRowSelect = true,
             MultiSelect = false,
             CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            TabStop = TabBehavior.TabStop,
+            CollectionNavigator = null // Disable type-ahead search so letter keys can be used as hotkeys
         };
 
         _tableView.Style.AlwaysShowHeaders = true;
