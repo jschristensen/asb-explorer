@@ -36,6 +36,9 @@ public class MainWindow : Window
     private TreeNodeModel? _currentNode;
     private int _currentMessageLimit = 100;
 
+    private object? _pendingDetailUpdate;
+    private PeekedMessage? _pendingMessage;
+
     public MainWindow(
         ServiceBusConnectionService connectionService,
         ConnectionStore connectionStore,
@@ -466,7 +469,24 @@ public class MainWindow : Window
 
     private void OnMessageSelected(PeekedMessage message)
     {
-        _messageDetail.SetMessage(message);
+        if (_pendingDetailUpdate != null)
+        {
+            Application.RemoveTimeout(_pendingDetailUpdate);
+        }
+
+        _pendingMessage = message;
+
+        _pendingDetailUpdate = Application.AddTimeout(
+            TimeSpan.FromMilliseconds(50),
+            () =>
+            {
+                if (_pendingMessage != null)
+                {
+                    _messageDetail.SetMessage(_pendingMessage);
+                }
+                _pendingDetailUpdate = null;
+                return false;
+            });
     }
 
     private void RefreshCurrentNode()
