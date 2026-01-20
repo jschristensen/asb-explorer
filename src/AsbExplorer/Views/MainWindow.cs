@@ -419,7 +419,7 @@ public class MainWindow : Window
 
         if (!node.CanPeekMessages || node.ConnectionName is null)
         {
-            _messageList.SetEntityName(null);
+            _messageList.SetEntity(null, null, null);
             _messageList.Clear();
             _messageDetail.Clear();
             return;
@@ -433,18 +433,27 @@ public class MainWindow : Window
 
             _messageList.IsDeadLetterMode = isDeadLetter;
 
-            // Build entity display name
+            // Build entity display name and settings path
             var entityDisplayName = node.NodeType switch
             {
                 TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
                     => $"{node.ParentEntityPath}/{node.EntityPath}",
                 _ => node.EntityPath
             };
+
+            // Build entity path for column settings (consistent across DLQ/non-DLQ)
+            var entitySettingsPath = node.NodeType switch
+            {
+                TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
+                    => $"{node.ParentEntityPath}/subscriptions/{node.EntityPath}",
+                _ => node.EntityPath
+            };
+
             if (isDeadLetter && entityDisplayName is not null)
             {
                 entityDisplayName += " (DLQ)";
             }
-            _messageList.SetEntityName(entityDisplayName);
+            _messageList.SetEntity(node.ConnectionName, entitySettingsPath, entityDisplayName);
 
             var topicName = node.NodeType is
                 TreeNodeType.TopicSubscription or
