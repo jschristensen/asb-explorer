@@ -31,9 +31,7 @@ public class ColumnConfigDialog : Dialog
             X = 1,
             Y = 3,
             Width = Dim.Fill(1),
-            Height = Dim.Fill(4),
-            AllowsMarking = true,
-            AllowsMultipleSelection = false
+            Height = Dim.Fill(4)
         };
 
         UpdateListView();
@@ -73,6 +71,8 @@ public class ColumnConfigDialog : Dialog
 
     private void UpdateListView()
     {
+        var selectedIdx = _listView.SelectedItem;
+
         var items = new ObservableCollection<string>(_columns.Select(c =>
         {
             var marker = c.Visible ? "[x]" : "[ ]";
@@ -82,10 +82,10 @@ public class ColumnConfigDialog : Dialog
 
         _listView.SetSource(items);
 
-        // Set marks based on visibility
-        for (var i = 0; i < _columns.Count; i++)
+        // Restore selection
+        if (selectedIdx >= 0 && selectedIdx < _columns.Count)
         {
-            _listView.Source.SetMark(i, _columns[i].Visible);
+            _listView.SelectedItem = selectedIdx;
         }
     }
 
@@ -102,7 +102,6 @@ public class ColumnConfigDialog : Dialog
         _columns[idx] = _columns[idx] with { Visible = !_columns[idx].Visible };
         _errorLabel.Text = "";
         UpdateListView();
-        _listView.SelectedItem = idx;
     }
 
     private void MoveUp()
