@@ -294,6 +294,17 @@ public class MessageListView : FrameView
 
     protected override bool OnKeyDown(Key key)
     {
+        // Prevent arrow keys from navigating out of the table
+        // (use Tab/Shift+Tab for that instead)
+        if (key.KeyCode == KeyCode.CursorUp && _tableView.SelectedRow <= 0)
+        {
+            return true; // Consume the event - already at top
+        }
+        if (key.KeyCode == KeyCode.CursorDown && _tableView.SelectedRow >= _messages.Count - 1)
+        {
+            return true; // Consume the event - already at bottom
+        }
+
         if (!_isDeadLetterMode)
         {
             return base.OnKeyDown(key);
