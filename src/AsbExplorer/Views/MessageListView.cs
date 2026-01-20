@@ -485,19 +485,25 @@ public class MessageListView : FrameView
         _dataTable.Rows.Clear();
         _dataTable.Columns.Clear();
 
+        // Get visible columns from settings (or use defaults)
+        var visibleColumns = _currentColumnSettings != null
+            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
+            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
+
         // Add checkbox column in DLQ mode
         if (_isDeadLetterMode)
         {
             _dataTable.Columns.Add("", typeof(string)); // Checkbox column
         }
-        _dataTable.Columns.Add("#", typeof(long));
-        _dataTable.Columns.Add("MessageId", typeof(string));
-        _dataTable.Columns.Add("Enqueued", typeof(string));
-        _dataTable.Columns.Add("Subject", typeof(string));
-        _dataTable.Columns.Add("Size", typeof(string));
-        _dataTable.Columns.Add("Delivery", typeof(int));
-        _dataTable.Columns.Add("ContentType", typeof(string));
 
+        // Add columns based on configuration
+        foreach (var col in visibleColumns)
+        {
+            var header = GetColumnHeader(col.Name);
+            _dataTable.Columns.Add(header, typeof(string));
+        }
+
+        // Add rows
         foreach (var msg in messages)
         {
             var row = new List<object>();
@@ -507,13 +513,10 @@ public class MessageListView : FrameView
                 row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
             }
 
-            row.Add(msg.SequenceNumber);
-            row.Add(DisplayHelpers.TruncateId(msg.MessageId, 12));
-            row.Add(DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime));
-            row.Add(msg.Subject ?? "-");
-            row.Add(DisplayHelpers.FormatSize(msg.BodySizeBytes));
-            row.Add(msg.DeliveryCount);
-            row.Add(msg.ContentType ?? "-");
+            foreach (var col in visibleColumns)
+            {
+                row.Add(GetColumnValue(msg, col));
+            }
 
             _dataTable.Rows.Add(row.ToArray());
         }
@@ -526,17 +529,67 @@ public class MessageListView : FrameView
         {
             _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
         }
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 3, MaxWidth = 12 });     // #
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 12, MaxWidth = 14 });   // MessageId
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 10, MaxWidth = 12 });   // Enqueued
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 10, MaxWidth = 30 });   // Subject
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 6, MaxWidth = 8 });     // Size
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 3, MaxWidth = 8 });     // Delivery
-        _tableView.Style.ExpandLastColumn = true;  // ContentType expands
 
+        foreach (var col in visibleColumns)
+        {
+            var style = GetColumnStyle(col.Name);
+            _tableView.Style.ColumnStyles.Add(colIndex++, style);
+        }
+
+        _tableView.Style.ExpandLastColumn = true;
         _tableView.Table = new DataTableSource(_dataTable);
         UpdateMessageCountLabel();
     }
+
+    private static string GetColumnHeader(string columnName) => columnName switch
+    {
+        "SequenceNumber" => "#",
+        "DeliveryCount" => "Delivery",
+        "ScheduledEnqueue" => "Scheduled",
+        _ => columnName
+    };
+
+    private static string GetColumnValue(PeekedMessage msg, ColumnConfig col)
+    {
+        if (col.IsApplicationProperty)
+        {
+            return msg.ApplicationProperties.TryGetValue(col.Name, out var val)
+                ? val?.ToString() ?? "-"
+                : "-";
+        }
+
+        return col.Name switch
+        {
+            "SequenceNumber" => msg.SequenceNumber.ToString(),
+            "MessageId" => DisplayHelpers.TruncateId(msg.MessageId, 12),
+            "Enqueued" => DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime),
+            "Subject" => msg.Subject ?? "-",
+            "Size" => DisplayHelpers.FormatSize(msg.BodySizeBytes),
+            "DeliveryCount" => msg.DeliveryCount.ToString(),
+            "ContentType" => msg.ContentType ?? "-",
+            "CorrelationId" => msg.CorrelationId ?? "-",
+            "SessionId" => msg.SessionId ?? "-",
+            "TimeToLive" => DisplayHelpers.FormatTimeSpan(msg.TimeToLive),
+            "ScheduledEnqueue" => DisplayHelpers.FormatScheduledTime(msg.ScheduledEnqueueTime),
+            _ => "-"
+        };
+    }
+
+    private static ColumnStyle GetColumnStyle(string columnName) => columnName switch
+    {
+        "SequenceNumber" => new ColumnStyle { MinWidth = 3, MaxWidth = 12 },
+        "MessageId" => new ColumnStyle { MinWidth = 12, MaxWidth = 14 },
+        "Enqueued" => new ColumnStyle { MinWidth = 10, MaxWidth = 12 },
+        "Subject" => new ColumnStyle { MinWidth = 10, MaxWidth = 30 },
+        "Size" => new ColumnStyle { MinWidth = 6, MaxWidth = 8 },
+        "DeliveryCount" => new ColumnStyle { MinWidth = 3, MaxWidth = 8 },
+        "ContentType" => new ColumnStyle { MinWidth = 8, MaxWidth = 20 },
+        "CorrelationId" => new ColumnStyle { MinWidth = 10, MaxWidth = 14 },
+        "SessionId" => new ColumnStyle { MinWidth = 8, MaxWidth = 14 },
+        "TimeToLive" => new ColumnStyle { MinWidth = 6, MaxWidth = 10 },
+        "ScheduledEnqueue" => new ColumnStyle { MinWidth = 8, MaxWidth = 12 },
+        _ => new ColumnStyle { MinWidth = 8, MaxWidth = 20 } // Application properties
+    };
 
     public void Clear()
     {
