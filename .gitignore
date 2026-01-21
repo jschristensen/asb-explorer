@@ -18,4 +18,14 @@ publish-test/
 
 # Git worktrees
 .worktrees/
-.worktrees/
+
+# Secrets and local configuration
+.env
+.env.*
+*.local.json
+secrets.json
+local.settings.json
+*.key
+*.pem
+*.pfx
+*.p12
