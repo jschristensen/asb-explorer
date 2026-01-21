@@ -172,6 +172,37 @@ public class MessageListView : FrameView
         };
 
         _tableView.Style.AlwaysShowHeaders = true;
+        _tableView.Style.ShowHorizontalScrollIndicators = true;
+        _tableView.Style.SmoothHorizontalScrolling = true;
+
+        // Enable horizontal scroll bar that auto-shows when content overflows
+        _tableView.HorizontalScrollBar.AutoShow = true;
+
+        // Handle horizontal mouse wheel scrolling by modifying ColumnOffset directly
+        // Shift+WheelUp generates WheeledLeft, Shift+WheelDown generates WheeledRight
+        // We swap directions to make it intuitive: Shift+WheelUp=left, Shift+WheelDown=right
+        _tableView.MouseEvent += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.WheeledRight))
+            {
+                // Shift+WheelDown → scroll left (show earlier columns)
+                if (_tableView.ColumnOffset > 0)
+                {
+                    _tableView.ColumnOffset--;
+                    e.Handled = true;
+                }
+            }
+            else if (e.Flags.HasFlag(MouseFlags.WheeledLeft))
+            {
+                // Shift+WheelUp → scroll right (show later columns)
+                if (_tableView.Table != null)
+                {
+                    _tableView.ColumnOffset++;
+                    _tableView.EnsureValidScrollOffsets();
+                    e.Handled = true;
+                }
+            }
+        };
 
         _tableView.CellActivated += (s, e) =>
         {
@@ -333,7 +364,7 @@ public class MessageListView : FrameView
             return;
 
         // Discover new properties from current messages
-        var newProps = _propertyScanner.ScanMessages(_messages);
+        var newProps = _propertyScanner.ScanMessages(_messages, _messages.Count);
         _columnConfigService.MergeDiscoveredProperties(_currentColumnSettings, newProps);
 
         var dialog = new ColumnConfigDialog(
@@ -370,6 +401,25 @@ public class MessageListView : FrameView
 
     protected override bool OnKeyDown(Key key)
     {
+        // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
+        if (key.IsShift && key.KeyCode == KeyCode.CursorLeft)
+        {
+            if (_tableView.ColumnOffset > 0)
+            {
+                _tableView.ColumnOffset--;
+            }
+            return true;
+        }
+        if (key.IsShift && key.KeyCode == KeyCode.CursorRight)
+        {
+            if (_tableView.Table != null)
+            {
+                _tableView.ColumnOffset++;
+                _tableView.EnsureValidScrollOffsets(); // Let TableView clamp to valid range
+            }
+            return true;
+        }
+
         // Prevent arrow keys from navigating out of the table
         // (use Tab/Shift+Tab for that instead)
         if (key.KeyCode == KeyCode.CursorUp && _tableView.SelectedRow <= 0)
@@ -379,6 +429,16 @@ public class MessageListView : FrameView
         if (key.KeyCode == KeyCode.CursorDown && _tableView.SelectedRow >= _messages.Count - 1)
         {
             return true; // Consume the event - already at bottom
+        }
+        // Prevent left/right arrows from navigating out when at horizontal edges
+        if (key.KeyCode == KeyCode.CursorLeft && _tableView.ColumnOffset <= 0 && _tableView.SelectedColumn <= 0)
+        {
+            return true; // Consume the event - already at leftmost position
+        }
+        if (key.KeyCode == KeyCode.CursorRight && _tableView.Table != null &&
+            _tableView.SelectedColumn >= _tableView.Table.Columns - 1)
+        {
+            return true; // Consume the event - already at rightmost column
         }
 
         if (!_isDeadLetterMode)
