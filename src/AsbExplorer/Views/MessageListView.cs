@@ -1,6 +1,7 @@
 using Terminal.Gui;
 using AsbExplorer.Models;
 using AsbExplorer.Helpers;
+using AsbExplorer.Services;
 
 namespace AsbExplorer.Views;
 
@@ -21,6 +22,12 @@ public class MessageListView : FrameView
     private static readonly int[] LimitOptions = [100, 500, 1000, 2500, 5000];
     private readonly Label _messageCountLabel;
     private long? _totalMessageCount;
+    private readonly SettingsStore _settingsStore;
+    private readonly ColumnConfigService _columnConfigService;
+    private readonly ApplicationPropertyScanner _propertyScanner;
+    private string? _currentNamespace;
+    private string? _currentEntityPath;
+    private EntityColumnSettings? _currentColumnSettings;
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
@@ -55,8 +62,39 @@ public class MessageListView : FrameView
         Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
     }
 
-    public MessageListView()
+    public void SetEntity(string? @namespace, string? entityPath, string? displayName)
     {
+        // Clear selection when switching to a different entity
+        if (@namespace != _currentNamespace || entityPath != _currentEntityPath)
+        {
+            _selectedSequenceNumbers.Clear();
+            RefreshCheckboxDisplay();
+            UpdateRequeueButtonVisibility();
+        }
+
+        _currentNamespace = @namespace;
+        _currentEntityPath = entityPath;
+        _currentEntityName = displayName;
+        Title = string.IsNullOrEmpty(displayName) ? "Messages" : $"Messages: {displayName}";
+
+        // Load column settings for this entity
+        _currentColumnSettings = @namespace != null && entityPath != null
+            ? _settingsStore.GetEntityColumns(@namespace, entityPath)
+            : null;
+
+        _currentColumnSettings ??= new EntityColumnSettings
+        {
+            Columns = _columnConfigService.GetDefaultColumns(),
+            DiscoveredProperties = []
+        };
+    }
+
+    public MessageListView(SettingsStore settingsStore, ColumnConfigService columnConfigService, ApplicationPropertyScanner propertyScanner)
+    {
+        _settingsStore = settingsStore;
+        _columnConfigService = columnConfigService;
+        _propertyScanner = propertyScanner;
+
         Title = "Messages";
         CanFocus = true;
         TabStop = TabBehavior.TabGroup;
@@ -134,6 +172,37 @@ public class MessageListView : FrameView
         };
 
         _tableView.Style.AlwaysShowHeaders = true;
+        _tableView.Style.ShowHorizontalScrollIndicators = true;
+        _tableView.Style.SmoothHorizontalScrolling = true;
+
+        // Enable horizontal scroll bar that auto-shows when content overflows
+        _tableView.HorizontalScrollBar.AutoShow = true;
+
+        // Handle horizontal mouse wheel scrolling by modifying ColumnOffset directly
+        // Shift+WheelUp generates WheeledLeft, Shift+WheelDown generates WheeledRight
+        // We swap directions to make it intuitive: Shift+WheelUp=left, Shift+WheelDown=right
+        _tableView.MouseEvent += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.WheeledRight))
+            {
+                // Shift+WheelDown → scroll left (show earlier columns)
+                if (_tableView.ColumnOffset > 0)
+                {
+                    _tableView.ColumnOffset--;
+                    e.Handled = true;
+                }
+            }
+            else if (e.Flags.HasFlag(MouseFlags.WheeledLeft))
+            {
+                // Shift+WheelUp → scroll right (show later columns)
+                if (_tableView.Table != null)
+                {
+                    _tableView.ColumnOffset++;
+                    _tableView.EnsureValidScrollOffsets();
+                    e.Handled = true;
+                }
+            }
+        };
 
         _tableView.CellActivated += (s, e) =>
         {
@@ -190,6 +259,20 @@ public class MessageListView : FrameView
                 // Data row click on checkbox column - toggle single row
                 ToggleRowSelection(cell.Value.Y);
                 e.Handled = true;
+            }
+        };
+
+        // Right-click on header to configure columns
+        _tableView.MouseClick += (s, e) =>
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button3Clicked))
+            {
+                var cell = _tableView.ScreenToCell(e.Position, out int? headerCol);
+                if (headerCol.HasValue)
+                {
+                    ShowColumnConfigDialog();
+                    e.Handled = true;
+                }
             }
         };
 
@@ -275,6 +358,30 @@ public class MessageListView : FrameView
         }
     }
 
+    private void ShowColumnConfigDialog()
+    {
+        if (_currentColumnSettings == null || _currentNamespace == null || _currentEntityPath == null)
+            return;
+
+        // Discover new properties from current messages
+        var newProps = _propertyScanner.ScanMessages(_messages, _messages.Count);
+        _columnConfigService.MergeDiscoveredProperties(_currentColumnSettings, newProps);
+
+        var dialog = new ColumnConfigDialog(
+            _currentColumnSettings.Columns,
+            _columnConfigService
+        );
+
+        Application.Run(dialog);
+
+        if (dialog.Result != null)
+        {
+            _currentColumnSettings.Columns = dialog.Result;
+            _ = _settingsStore.SaveEntityColumnsAsync(_currentNamespace, _currentEntityPath, _currentColumnSettings);
+            SetMessages(_messages); // Refresh display
+        }
+    }
+
     public void SetTotalMessageCount(long? total)
     {
         _totalMessageCount = total;
@@ -294,6 +401,25 @@ public class MessageListView : FrameView
 
     protected override bool OnKeyDown(Key key)
     {
+        // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
+        if (key.IsShift && key.KeyCode == KeyCode.CursorLeft)
+        {
+            if (_tableView.ColumnOffset > 0)
+            {
+                _tableView.ColumnOffset--;
+            }
+            return true;
+        }
+        if (key.IsShift && key.KeyCode == KeyCode.CursorRight)
+        {
+            if (_tableView.Table != null)
+            {
+                _tableView.ColumnOffset++;
+                _tableView.EnsureValidScrollOffsets(); // Let TableView clamp to valid range
+            }
+            return true;
+        }
+
         // Prevent arrow keys from navigating out of the table
         // (use Tab/Shift+Tab for that instead)
         if (key.KeyCode == KeyCode.CursorUp && _tableView.SelectedRow <= 0)
@@ -303,6 +429,16 @@ public class MessageListView : FrameView
         if (key.KeyCode == KeyCode.CursorDown && _tableView.SelectedRow >= _messages.Count - 1)
         {
             return true; // Consume the event - already at bottom
+        }
+        // Prevent left/right arrows from navigating out when at horizontal edges
+        if (key.KeyCode == KeyCode.CursorLeft && _tableView.ColumnOffset <= 0 && _tableView.SelectedColumn <= 0)
+        {
+            return true; // Consume the event - already at leftmost position
+        }
+        if (key.KeyCode == KeyCode.CursorRight && _tableView.Table != null &&
+            _tableView.SelectedColumn >= _tableView.Table.Columns - 1)
+        {
+            return true; // Consume the event - already at rightmost column
         }
 
         if (!_isDeadLetterMode)
@@ -409,19 +545,25 @@ public class MessageListView : FrameView
         _dataTable.Rows.Clear();
         _dataTable.Columns.Clear();
 
+        // Get visible columns from settings (or use defaults)
+        var visibleColumns = _currentColumnSettings != null
+            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
+            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
+
         // Add checkbox column in DLQ mode
         if (_isDeadLetterMode)
         {
             _dataTable.Columns.Add("", typeof(string)); // Checkbox column
         }
-        _dataTable.Columns.Add("#", typeof(long));
-        _dataTable.Columns.Add("MessageId", typeof(string));
-        _dataTable.Columns.Add("Enqueued", typeof(string));
-        _dataTable.Columns.Add("Subject", typeof(string));
-        _dataTable.Columns.Add("Size", typeof(string));
-        _dataTable.Columns.Add("Delivery", typeof(int));
-        _dataTable.Columns.Add("ContentType", typeof(string));
 
+        // Add columns based on configuration
+        foreach (var col in visibleColumns)
+        {
+            var header = GetColumnHeader(col.Name);
+            _dataTable.Columns.Add(header, typeof(string));
+        }
+
+        // Add rows
         foreach (var msg in messages)
         {
             var row = new List<object>();
@@ -431,13 +573,10 @@ public class MessageListView : FrameView
                 row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
             }
 
-            row.Add(msg.SequenceNumber);
-            row.Add(DisplayHelpers.TruncateId(msg.MessageId, 12));
-            row.Add(DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime));
-            row.Add(msg.Subject ?? "-");
-            row.Add(DisplayHelpers.FormatSize(msg.BodySizeBytes));
-            row.Add(msg.DeliveryCount);
-            row.Add(msg.ContentType ?? "-");
+            foreach (var col in visibleColumns)
+            {
+                row.Add(GetColumnValue(msg, col));
+            }
 
             _dataTable.Rows.Add(row.ToArray());
         }
@@ -450,17 +589,67 @@ public class MessageListView : FrameView
         {
             _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
         }
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 3, MaxWidth = 12 });     // #
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 12, MaxWidth = 14 });   // MessageId
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 10, MaxWidth = 12 });   // Enqueued
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 10, MaxWidth = 30 });   // Subject
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 6, MaxWidth = 8 });     // Size
-        _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 3, MaxWidth = 8 });     // Delivery
-        _tableView.Style.ExpandLastColumn = true;  // ContentType expands
 
+        foreach (var col in visibleColumns)
+        {
+            var style = GetColumnStyle(col.Name);
+            _tableView.Style.ColumnStyles.Add(colIndex++, style);
+        }
+
+        _tableView.Style.ExpandLastColumn = true;
         _tableView.Table = new DataTableSource(_dataTable);
         UpdateMessageCountLabel();
     }
+
+    private static string GetColumnHeader(string columnName) => columnName switch
+    {
+        "SequenceNumber" => "#",
+        "DeliveryCount" => "Delivery",
+        "ScheduledEnqueue" => "Scheduled",
+        _ => columnName
+    };
+
+    private static string GetColumnValue(PeekedMessage msg, ColumnConfig col)
+    {
+        if (col.IsApplicationProperty)
+        {
+            return msg.ApplicationProperties.TryGetValue(col.Name, out var val)
+                ? val?.ToString() ?? "-"
+                : "-";
+        }
+
+        return col.Name switch
+        {
+            "SequenceNumber" => msg.SequenceNumber.ToString(),
+            "MessageId" => DisplayHelpers.TruncateId(msg.MessageId, 12),
+            "Enqueued" => DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime),
+            "Subject" => msg.Subject ?? "-",
+            "Size" => DisplayHelpers.FormatSize(msg.BodySizeBytes),
+            "DeliveryCount" => msg.DeliveryCount.ToString(),
+            "ContentType" => msg.ContentType ?? "-",
+            "CorrelationId" => msg.CorrelationId ?? "-",
+            "SessionId" => msg.SessionId ?? "-",
+            "TimeToLive" => DisplayHelpers.FormatTimeSpan(msg.TimeToLive),
+            "ScheduledEnqueue" => DisplayHelpers.FormatScheduledTime(msg.ScheduledEnqueueTime),
+            _ => "-"
+        };
+    }
+
+    private static ColumnStyle GetColumnStyle(string columnName) => columnName switch
+    {
+        "SequenceNumber" => new ColumnStyle { MinWidth = 3, MaxWidth = 12 },
+        "MessageId" => new ColumnStyle { MinWidth = 12, MaxWidth = 14 },
+        "Enqueued" => new ColumnStyle { MinWidth = 10, MaxWidth = 12 },
+        "Subject" => new ColumnStyle { MinWidth = 10, MaxWidth = 30 },
+        "Size" => new ColumnStyle { MinWidth = 6, MaxWidth = 8 },
+        "DeliveryCount" => new ColumnStyle { MinWidth = 3, MaxWidth = 8 },
+        "ContentType" => new ColumnStyle { MinWidth = 8, MaxWidth = 20 },
+        "CorrelationId" => new ColumnStyle { MinWidth = 10, MaxWidth = 14 },
+        "SessionId" => new ColumnStyle { MinWidth = 8, MaxWidth = 14 },
+        "TimeToLive" => new ColumnStyle { MinWidth = 6, MaxWidth = 10 },
+        "ScheduledEnqueue" => new ColumnStyle { MinWidth = 8, MaxWidth = 12 },
+        _ => new ColumnStyle { MinWidth = 8, MaxWidth = 20 } // Application properties
+    };
 
     public void Clear()
     {

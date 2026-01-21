@@ -325,7 +325,9 @@ public class TreePanel : FrameView
                     var parentNode = FindNodeById(parentId);
                     if (parentNode is not null &&
                         (parentNode.NodeType == TreeNodeType.QueuesFolder ||
-                         parentNode.NodeType == TreeNodeType.Topic))
+                         parentNode.NodeType == TreeNodeType.Topic ||
+                         parentNode.NodeType == TreeNodeType.Queue ||
+                         parentNode.NodeType == TreeNodeType.TopicSubscription))
                     {
                         await LoadMessageCountsAsync(children, parentNode.ConnectionName!, parentNode);
                     }

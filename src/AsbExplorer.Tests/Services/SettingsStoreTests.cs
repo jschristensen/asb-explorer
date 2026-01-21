@@ -1,3 +1,4 @@
+using AsbExplorer.Models;
 using AsbExplorer.Services;
 
 namespace AsbExplorer.Tests.Services;
@@ -88,5 +89,52 @@ public class SettingsStoreTests : IDisposable
         await newStore.LoadAsync();
 
         Assert.Equal(10, newStore.Settings.AutoRefreshIntervalSeconds);
+    }
+
+    [Fact]
+    public async Task GetEntityColumns_NoEntry_ReturnsNull()
+    {
+        await _store.LoadAsync();
+
+        var result = _store.GetEntityColumns("mybus.servicebus.windows.net", "orders");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task SaveEntityColumnsAsync_SavesAndPersists()
+    {
+        await _store.LoadAsync();
+        var settings = new EntityColumnSettings
+        {
+            Columns = [new ColumnConfig("SequenceNumber", true)],
+            DiscoveredProperties = ["OrderId"]
+        };
+
+        await _store.SaveEntityColumnsAsync("mybus.servicebus.windows.net", "orders", settings);
+
+        var newStore = new SettingsStore(_tempDir);
+        await newStore.LoadAsync();
+        var loaded = newStore.GetEntityColumns("mybus.servicebus.windows.net", "orders");
+
+        Assert.NotNull(loaded);
+        Assert.Single(loaded.Columns);
+        Assert.Contains("OrderId", loaded.DiscoveredProperties);
+    }
+
+    [Fact]
+    public async Task GetEntityColumns_UsesCorrectKeyFormat()
+    {
+        await _store.LoadAsync();
+        var settings = new EntityColumnSettings { Columns = [] };
+
+        await _store.SaveEntityColumnsAsync("ns.servicebus.windows.net", "topic/subscriptions/sub", settings);
+
+        var loaded = _store.GetEntityColumns("ns.servicebus.windows.net", "topic/subscriptions/sub");
+        Assert.NotNull(loaded);
+
+        // Different entity should return null
+        var other = _store.GetEntityColumns("ns.servicebus.windows.net", "other");
+        Assert.Null(other);
     }
 }

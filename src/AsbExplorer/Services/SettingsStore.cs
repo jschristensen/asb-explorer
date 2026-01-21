@@ -71,6 +71,22 @@ public class SettingsStore
         await SaveAsync();
     }
 
+    private static string GetEntityKey(string @namespace, string entityPath)
+        => $"{@namespace}|{entityPath}";
+
+    public EntityColumnSettings? GetEntityColumns(string @namespace, string entityPath)
+    {
+        var key = GetEntityKey(@namespace, entityPath);
+        return Settings.EntityColumns.TryGetValue(key, out var settings) ? settings : null;
+    }
+
+    public async Task SaveEntityColumnsAsync(string @namespace, string entityPath, EntityColumnSettings settings)
+    {
+        var key = GetEntityKey(@namespace, entityPath);
+        Settings.EntityColumns[key] = settings;
+        await SaveAsync();
+    }
+
     private async Task SaveAsync()
     {
         var json = JsonSerializer.Serialize(Settings, AppJsonContext.Default.AppSettings);

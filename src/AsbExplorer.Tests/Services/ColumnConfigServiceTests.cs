@@ -1,0 +1,205 @@
+using AsbExplorer.Models;
+using AsbExplorer.Services;
+
+namespace AsbExplorer.Tests.Services;
+
+public class ColumnConfigServiceTests
+{
+    private readonly ColumnConfigService _service = new();
+
+    [Fact]
+    public void GetDefaultColumns_ReturnsAllCoreColumns()
+    {
+        var columns = _service.GetDefaultColumns();
+
+        Assert.Equal(11, columns.Count);
+        Assert.Equal("SequenceNumber", columns[0].Name);
+        Assert.Equal("MessageId", columns[1].Name);
+        Assert.Equal("Enqueued", columns[2].Name);
+        Assert.Equal("Subject", columns[3].Name);
+        Assert.Equal("Size", columns[4].Name);
+        Assert.Equal("DeliveryCount", columns[5].Name);
+        Assert.Equal("ContentType", columns[6].Name);
+        Assert.Equal("CorrelationId", columns[7].Name);
+        Assert.Equal("SessionId", columns[8].Name);
+        Assert.Equal("TimeToLive", columns[9].Name);
+        Assert.Equal("ScheduledEnqueue", columns[10].Name);
+    }
+
+    [Fact]
+    public void GetDefaultColumns_FirstSevenVisible_LastFourHidden()
+    {
+        var columns = _service.GetDefaultColumns();
+
+        // First 7 visible
+        Assert.True(columns[0].Visible); // SequenceNumber
+        Assert.True(columns[1].Visible); // MessageId
+        Assert.True(columns[2].Visible); // Enqueued
+        Assert.True(columns[3].Visible); // Subject
+        Assert.True(columns[4].Visible); // Size
+        Assert.True(columns[5].Visible); // DeliveryCount
+        Assert.True(columns[6].Visible); // ContentType
+
+        // Last 4 hidden
+        Assert.False(columns[7].Visible); // CorrelationId
+        Assert.False(columns[8].Visible); // SessionId
+        Assert.False(columns[9].Visible); // TimeToLive
+        Assert.False(columns[10].Visible); // ScheduledEnqueue
+    }
+
+    [Fact]
+    public void GetDefaultColumns_NoneAreApplicationProperties()
+    {
+        var columns = _service.GetDefaultColumns();
+
+        Assert.All(columns, c => Assert.False(c.IsApplicationProperty));
+    }
+
+    [Fact]
+    public void MergeDiscoveredProperties_AddsNewKeysAsHidden()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns = _service.GetDefaultColumns(),
+            DiscoveredProperties = []
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["OrderId", "CustomerId"]);
+
+        Assert.Contains(settings.DiscoveredProperties, p => p == "OrderId");
+        Assert.Contains(settings.DiscoveredProperties, p => p == "CustomerId");
+
+        var orderIdCol = settings.Columns.Single(c => c.Name == "OrderId");
+        Assert.False(orderIdCol.Visible);
+        Assert.True(orderIdCol.IsApplicationProperty);
+    }
+
+    [Fact]
+    public void MergeDiscoveredProperties_PreservesExistingVisibility()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns =
+            [
+                .._service.GetDefaultColumns(),
+                new ColumnConfig("OrderId", true, true)
+            ],
+            DiscoveredProperties = ["OrderId"]
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["OrderId", "CustomerId"]);
+
+        var orderIdCol = settings.Columns.Single(c => c.Name == "OrderId");
+        Assert.True(orderIdCol.Visible); // Preserved
+    }
+
+    [Fact]
+    public void MergeDiscoveredProperties_PreservesColumnOrder()
+    {
+        var settings = new EntityColumnSettings
+        {
+            Columns =
+            [
+                .._service.GetDefaultColumns(),
+                new ColumnConfig("ExistingProp", true, true)
+            ],
+            DiscoveredProperties = ["ExistingProp"]
+        };
+
+        _service.MergeDiscoveredProperties(settings, ["NewProp"]);
+
+        var existingIndex = settings.Columns.FindIndex(c => c.Name == "ExistingProp");
+        var newIndex = settings.Columns.FindIndex(c => c.Name == "NewProp");
+        Assert.True(newIndex > existingIndex); // New props added at end
+    }
+
+    [Fact]
+    public void ValidateConfig_RequiresAtLeastOneVisible()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", false),
+            new("MessageId", false)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("at least one", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateConfig_SequenceNumberMustBeFirst()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("MessageId", true),
+            new("SequenceNumber", true)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("SequenceNumber", error);
+    }
+
+    [Fact]
+    public void ValidateConfig_SequenceNumberMustBeVisible()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", false),
+            new("MessageId", true)
+        };
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.False(isValid);
+        Assert.Contains("SequenceNumber", error);
+    }
+
+    [Fact]
+    public void ValidateConfig_ValidConfigReturnsTrue()
+    {
+        var columns = _service.GetDefaultColumns();
+
+        var (isValid, error) = _service.ValidateConfig(columns);
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void GetVisibleColumns_FiltersHiddenColumns()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", true),
+            new("MessageId", false),
+            new("Subject", true)
+        };
+
+        var visible = _service.GetVisibleColumns(columns);
+
+        Assert.Equal(2, visible.Count);
+        Assert.Equal("SequenceNumber", visible[0].Name);
+        Assert.Equal("Subject", visible[1].Name);
+    }
+
+    [Fact]
+    public void GetVisibleColumns_PreservesOrder()
+    {
+        var columns = new List<ColumnConfig>
+        {
+            new("SequenceNumber", true),
+            new("Subject", true),
+            new("MessageId", true)
+        };
+
+        var visible = _service.GetVisibleColumns(columns);
+
+        Assert.Equal("SequenceNumber", visible[0].Name);
+        Assert.Equal("Subject", visible[1].Name);
+        Assert.Equal("MessageId", visible[2].Name);
+    }
+}
