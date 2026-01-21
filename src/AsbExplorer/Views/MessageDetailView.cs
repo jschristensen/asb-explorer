@@ -247,24 +247,103 @@ public class MessageDetailView : FrameView
 }
 
 /// <summary>
-/// Custom view for rendering JSON content with syntax highlighting and folding.
+/// View for rendering message body content with syntax highlighting and text selection.
+/// Uses Terminal.Gui's TextView for built-in selection capabilities.
 /// </summary>
 internal class JsonBodyView : View
 {
     private readonly SettingsStore _settingsStore;
-    private FoldableJsonDocument? _currentDocument;
+    private readonly TextView _textView;
+    private readonly Label _formatSelector;
+    private readonly Label _copyButton;
     private string _autoDetectedFormat = "";
     private string _selectedFormat = "";
-    private string _rawContent = "";           // Original unformatted content
-    private string _formattedContent = "";     // Content formatted for display
-    private int _scrollOffset;
+    private string _rawContent = "";
+    private string _formattedContent = "";
+    private Color _bgColor;
     private static readonly string[] AvailableFormats = ["TEXT", "JSON", "XML"];
 
     public JsonBodyView(SettingsStore settingsStore)
     {
         _settingsStore = settingsStore;
-        MouseClick += OnMouseClick;
-        MouseEvent += OnMouseEvent;
+        CanFocus = true;
+
+        var theme = _settingsStore.Settings.Theme;
+        var isDark = theme == "dark";
+        _bgColor = isDark ? new Color(0, 43, 54) : new Color(253, 246, 227);
+
+        _textView = new TextView
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = Dim.Fill(1), // Leave room for format selector
+            ReadOnly = true
+        };
+
+        // Apply syntax highlighting before each draw
+        _textView.DrawingText += (s, e) => ApplyHighlighting();
+
+        // Format selector in bottom-left
+        _formatSelector = new Label
+        {
+            X = 0,
+            Y = Pos.AnchorEnd(1),
+            Text = "[JSON]"
+        };
+        _formatSelector.MouseClick += (s, e) =>
+        {
+            ShowFormatMenu();
+            e.Handled = true;
+        };
+
+        // Copy button in bottom-right
+        _copyButton = new Label
+        {
+            X = Pos.AnchorEnd(6),
+            Y = Pos.AnchorEnd(1),
+            Text = "[Copy]"
+        };
+        _copyButton.MouseClick += (s, e) =>
+        {
+            CopyToClipboard();
+            e.Handled = true;
+        };
+
+        UpdateColors();
+        Add(_textView, _formatSelector, _copyButton);
+    }
+
+    private void UpdateColors()
+    {
+        var theme = _settingsStore.Settings.Theme;
+        var isDark = theme == "dark";
+        _bgColor = isDark ? new Color(0, 43, 54) : new Color(253, 246, 227);
+        var fgColor = isDark ? new Color(131, 148, 150) : new Color(101, 123, 131);
+        var selectorColor = new Color(38, 139, 210); // Solarized blue
+
+        var scheme = new ColorScheme
+        {
+            Normal = new Attribute(fgColor, _bgColor),
+            Focus = new Attribute(fgColor, _bgColor),
+            HotNormal = new Attribute(fgColor, _bgColor),
+            HotFocus = new Attribute(fgColor, _bgColor),
+            Disabled = new Attribute(fgColor, _bgColor)
+        };
+
+        _textView.ColorScheme = scheme;
+
+        var selectorScheme = new ColorScheme
+        {
+            Normal = new Attribute(selectorColor, _bgColor),
+            Focus = new Attribute(selectorColor, _bgColor),
+            HotNormal = new Attribute(selectorColor, _bgColor),
+            HotFocus = new Attribute(selectorColor, _bgColor),
+            Disabled = new Attribute(selectorColor, _bgColor)
+        };
+
+        _formatSelector.ColorScheme = selectorScheme;
+        _copyButton.ColorScheme = selectorScheme;
     }
 
     public void SetContent(string content, string format, string rawContent)
@@ -272,40 +351,29 @@ internal class JsonBodyView : View
         _autoDetectedFormat = format;
         _rawContent = rawContent;
         _formattedContent = content;
-        _scrollOffset = 0;
 
-        // Default to JSON format - user can switch to TEXT if needed
-        _selectedFormat = "json";
+        // Default to auto-detected format
+        _selectedFormat = format;
         ApplyFormat();
-        SetNeedsDraw();
     }
 
     private void ApplyFormat()
     {
-        // Determine content to display based on selected format
         var contentToDisplay = GetFormattedContent();
-
-        if (_selectedFormat == "json")
-        {
-            _currentDocument = new FoldableJsonDocument(contentToDisplay);
-        }
-        else
-        {
-            _currentDocument = null;
-            _formattedContent = contentToDisplay;
-        }
+        _textView.Text = contentToDisplay;
+        _formatSelector.Text = $"[{_selectedFormat.ToUpper()}]";
+        UpdateColors();
+        SetNeedsDraw();
     }
 
     private string GetFormattedContent()
     {
         if (_selectedFormat == "json")
         {
-            // If already auto-detected as JSON, MessageFormatter already pretty-printed it
             if (_autoDetectedFormat == "json")
             {
                 return _formattedContent;
             }
-            // Otherwise try to pretty-print the raw content
             return TryPrettyPrintJson(_rawContent) ?? _rawContent;
         }
 
@@ -326,14 +394,11 @@ internal class JsonBodyView : View
     {
         try
         {
-            // Strip BOM and whitespace
             var cleanText = text.TrimStart('\uFEFF').Trim();
             if (string.IsNullOrEmpty(cleanText))
                 return null;
 
-            // Try to parse - let JsonDocument decide if it's valid
             using var doc = System.Text.Json.JsonDocument.Parse(cleanText);
-            // Use Utf8JsonWriter for AOT-compatible pretty printing
             using var stream = new System.IO.MemoryStream();
             using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
             doc.WriteTo(writer);
@@ -374,143 +439,42 @@ internal class JsonBodyView : View
 
     public void Clear()
     {
-        _currentDocument = null;
         _autoDetectedFormat = "";
         _selectedFormat = "";
         _rawContent = "";
         _formattedContent = "";
-        _scrollOffset = 0;
+        _textView.Text = "";
+        _formatSelector.Text = "[JSON]";
         SetNeedsDraw();
     }
 
-    protected override bool OnDrawingContent()
+    private void ApplyHighlighting()
     {
-        if (string.IsNullOrEmpty(_selectedFormat))
+        if (_selectedFormat != "json")
+            return;
+
+        for (var y = 0; y < _textView.Lines; y++)
         {
-            return true;
-        }
+            var line = _textView.GetLine(y);
+            var lineText = new string(line.Select(c => (char)c.Rune.Value).ToArray());
 
-        var theme = _settingsStore.Settings.Theme;
-        var isDark = theme == "dark";
-        var bgColor = isDark ? new Color(0, 43, 54) : new Color(253, 246, 227);
-        var fgColor = isDark ? new Color(131, 148, 150) : new Color(101, 123, 131);
+            var spans = JsonSyntaxHighlighter.Highlight(lineText);
+            var x = 0;
 
-        // Content starts at line 0 now (no header)
-        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
-
-        if (_currentDocument != null)
-        {
-            // JSON with highlighting and folding
-            var lines = _currentDocument.GetVisibleLines();
-            var y = 0;
-
-            for (var i = _scrollOffset; i < lines.Count && y < contentHeight; i++)
+            foreach (var span in spans)
             {
-                Move(0, y);
-
-                // Syntax highlight this line (works for both normal and collapsed lines)
-                var spans = JsonSyntaxHighlighter.Highlight(lines[i]);
-                foreach (var span in spans)
+                var color = SolarizedTheme.JsonColors[span.TokenType];
+                foreach (var _ in span.Text)
                 {
-                    var color = SolarizedTheme.JsonColors[span.TokenType];
-                    SetAttribute(new Attribute(color, bgColor));
-                    AddStr(span.Text);
+                    if (x < line.Count)
+                    {
+                        var cell = line[x];
+                        cell.Attribute = new Attribute(color, _bgColor);
+                        line[x] = cell;
+                    }
+                    x++;
                 }
-                y++;
             }
-        }
-        else
-        {
-            // Non-JSON content - render plain
-            var plainAttr = new Attribute(fgColor, bgColor);
-            SetAttribute(plainAttr);
-
-            var lines = _formattedContent.Split('\n');
-            var y = 0;
-            for (var i = _scrollOffset; i < lines.Length && y < contentHeight; i++)
-            {
-                Move(0, y);
-                AddStr(lines[i].TrimEnd('\r'));
-                y++;
-            }
-        }
-
-        // Draw format selector in lower-left corner
-        DrawFormatSelector(bgColor);
-
-        return true;
-    }
-
-    private const string CopyLabel = "[Copy]";
-
-    private void DrawFormatSelector(Color bgColor)
-    {
-        var lastLine = Viewport.Height - 1;
-        var formatLabel = $"[{_selectedFormat.ToUpper()}]";
-
-        // Use a distinct color to indicate it's clickable
-        var selectorColor = new Color(38, 139, 210); // Solarized blue
-        var selectorAttr = new Attribute(selectorColor, bgColor);
-
-        // Draw format selector on left
-        SetAttribute(selectorAttr);
-        Move(0, lastLine);
-        AddStr(formatLabel);
-
-        // Draw Copy button on right
-        var copyX = Viewport.Width - CopyLabel.Length;
-        if (copyX > formatLabel.Length + 2)
-        {
-            Move(copyX, lastLine);
-            AddStr(CopyLabel);
-        }
-    }
-
-    private bool IsPointInFormatSelector(int x, int y)
-    {
-        var lastLine = Viewport.Height - 1;
-        var formatLabel = $"[{_selectedFormat.ToUpper()}]";
-        return y == lastLine && x >= 0 && x < formatLabel.Length;
-    }
-
-    private bool IsPointInCopyButton(int x, int y)
-    {
-        var lastLine = Viewport.Height - 1;
-        var copyX = Viewport.Width - CopyLabel.Length;
-        return y == lastLine && x >= copyX && x < Viewport.Width;
-    }
-
-    private void OnMouseClick(object? sender, MouseEventArgs e)
-    {
-        // Check if click is on the format selector
-        if (IsPointInFormatSelector(e.Position.X, e.Position.Y))
-        {
-            ShowFormatMenu();
-            e.Handled = true;
-            return;
-        }
-
-        // Check if click is on the Copy button
-        if (IsPointInCopyButton(e.Position.X, e.Position.Y))
-        {
-            CopyToClipboard();
-            e.Handled = true;
-            return;
-        }
-
-        // Handle JSON folding
-        if (_currentDocument == null) return;
-
-        var contentHeight = Viewport.Height - 1;
-        if (e.Position.Y >= contentHeight) return; // Click on format selector line
-
-        var lineIndex = e.Position.Y + _scrollOffset;
-        var lines = _currentDocument.GetVisibleLines();
-
-        if (lineIndex >= 0 && lineIndex < lines.Count)
-        {
-            _currentDocument.ToggleFoldAt(lineIndex);
-            SetNeedsDraw();
         }
     }
 
@@ -556,98 +520,30 @@ internal class JsonBodyView : View
             return;
 
         _selectedFormat = format.ToLower();
-        _scrollOffset = 0;
         ApplyFormat();
-        SetNeedsDraw();
     }
 
-    private void OnMouseEvent(object? sender, MouseEventArgs e)
+    private void CopyToClipboard()
     {
-        if (e.Flags.HasFlag(MouseFlags.WheeledDown))
+        // Copy selected text if there's a selection, otherwise copy all
+        var selectedText = _textView.SelectedText;
+        var content = string.IsNullOrEmpty(selectedText) ? GetFormattedContent() : selectedText;
+
+        if (!string.IsNullOrEmpty(content))
         {
-            ScrollDown(3);
-            e.Handled = true;
-        }
-        else if (e.Flags.HasFlag(MouseFlags.WheeledUp))
-        {
-            ScrollUp(3);
-            e.Handled = true;
+            Clipboard.TrySetClipboardData(content);
         }
     }
 
     protected override bool OnKeyDown(Key key)
     {
-        // Ctrl+C to copy raw content to clipboard
+        // Ctrl+C to copy (TextView handles this, but we override for custom behavior)
         if (key.KeyCode == KeyCode.C && key.IsCtrl)
         {
             CopyToClipboard();
             return true;
         }
 
-        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
-        switch (key.KeyCode)
-        {
-            case KeyCode.CursorDown:
-                ScrollDown(1);
-                return true;
-            case KeyCode.CursorUp:
-                ScrollUp(1);
-                return true;
-            case KeyCode.PageDown:
-                ScrollDown(Math.Max(1, contentHeight - 1));
-                return true;
-            case KeyCode.PageUp:
-                ScrollUp(Math.Max(1, contentHeight - 1));
-                return true;
-            case KeyCode.Home:
-                _scrollOffset = 0;
-                SetNeedsDraw();
-                return true;
-            case KeyCode.End:
-                ScrollToEnd();
-                return true;
-        }
         return base.OnKeyDown(key);
-    }
-
-    private void ScrollDown(int lines)
-    {
-        var totalLines = GetTotalLines();
-        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
-        var maxOffset = Math.Max(0, totalLines - contentHeight);
-        _scrollOffset = Math.Min(_scrollOffset + lines, maxOffset);
-        SetNeedsDraw();
-    }
-
-    private void ScrollUp(int lines)
-    {
-        _scrollOffset = Math.Max(0, _scrollOffset - lines);
-        SetNeedsDraw();
-    }
-
-    private void ScrollToEnd()
-    {
-        var totalLines = GetTotalLines();
-        var contentHeight = Viewport.Height - 1; // Reserve last line for format selector
-        _scrollOffset = Math.Max(0, totalLines - contentHeight);
-        SetNeedsDraw();
-    }
-
-    private int GetTotalLines()
-    {
-        if (_currentDocument != null)
-        {
-            return _currentDocument.GetVisibleLines().Count;
-        }
-        return _formattedContent.Split('\n').Length;
-    }
-
-    private void CopyToClipboard()
-    {
-        var content = GetFormattedContent();
-        if (!string.IsNullOrEmpty(content))
-        {
-            Clipboard.TrySetClipboardData(content);
-        }
     }
 }
