@@ -21,6 +21,7 @@ public class MainWindow : Window
     private readonly SettingsStore _settingsStore;
     private readonly ColumnConfigService _columnConfigService;
     private readonly ApplicationPropertyScanner _propertyScanner;
+    private readonly MessageExportService _exportService;
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
     private readonly Shortcut _refreshShortcut;
@@ -50,7 +51,8 @@ public class MainWindow : Window
         SettingsStore settingsStore,
         MessageFormatter formatter,
         ColumnConfigService columnConfigService,
-        ApplicationPropertyScanner propertyScanner)
+        ApplicationPropertyScanner propertyScanner,
+        MessageExportService exportService)
     {
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
@@ -62,6 +64,7 @@ public class MainWindow : Window
         _settingsStore = settingsStore;
         _columnConfigService = columnConfigService;
         _propertyScanner = propertyScanner;
+        _exportService = exportService;
 
         X = 0;
         Y = 0;
@@ -143,6 +146,7 @@ public class MainWindow : Window
         _messageList.EditMessageRequested += OnEditMessageRequested;
         _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
         _messageList.LimitChanged += OnMessageLimitChanged;
+        _messageList.ExportRequested += OnExportRequested;
 
         // Initialize auto-refresh states from settings
         _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
@@ -669,6 +673,85 @@ public class MainWindow : Window
         {
             OnNodeSelected(_currentNode);
         }
+    }
+
+    private async void OnExportRequested()
+    {
+        var allMessages = _messageList.GetAllMessages();
+        var selectedMessages = _messageList.GetSelectedMessages();
+        var columns = _messageList.GetCurrentColumns();
+
+        if (allMessages.Count == 0)
+        {
+            MessageBox.ErrorQuery("Error", "No messages to export.", "OK");
+            return;
+        }
+
+        _isModalOpen = true;
+        var dialog = new ExportDialog(allMessages.Count, selectedMessages.Count, columns);
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Result is null)
+        {
+            return;
+        }
+
+        var messagesToExport = dialog.Result.ExportAll
+            ? allMessages
+            : selectedMessages;
+
+        // Get or prompt for export directory
+        var exportDir = _settingsStore.Settings.ExportDirectory;
+        if (string.IsNullOrEmpty(exportDir))
+        {
+            // Prompt for export directory
+            var defaultDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var result = MessageBox.Query(
+                "Export Directory",
+                $"Enter export directory path:\n\nDefault: {defaultDir}",
+                "Use Default", "Cancel");
+
+            if (result == 1) // Cancel
+            {
+                return;
+            }
+
+            exportDir = defaultDir;
+            if (!Directory.Exists(exportDir))
+            {
+                MessageBox.ErrorQuery("Error", $"Directory does not exist: {exportDir}", "OK");
+                return;
+            }
+            await _settingsStore.SetExportDirectoryAsync(exportDir);
+        }
+
+        // Generate filename: {entity-name}-{timestamp}.db
+        var entityName = SanitizeFilename(_currentNode?.EntityPath ?? "messages");
+        var timestamp = DateTime.Now.ToString("yyyy-MM-ddTHHmmss");
+        var filename = $"{entityName}-{timestamp}.db";
+        var filePath = Path.Combine(exportDir, filename);
+
+        try
+        {
+            await _exportService.ExportAsync(
+                messagesToExport,
+                dialog.Result.SelectedColumns,
+                filePath);
+
+            MessageBox.Query("Export Complete", $"Exported {messagesToExport.Count} messages to:\n{filePath}", "OK");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.ErrorQuery("Export Failed", $"Failed to export: {ex.Message}", "OK");
+        }
+    }
+
+    private static string SanitizeFilename(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '-' : c).ToArray());
+        return sanitized.ToLowerInvariant();
     }
 
     private async Task<long?> GetTotalMessageCountAsync(TreeNodeModel node, TreeNodeType effectiveType, string? topicName, bool isDeadLetter)
