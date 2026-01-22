@@ -88,5 +88,29 @@ public class MessageFilterTests
             var message = CreateMessage(subject: null);
             Assert.False(MessageFilter.Matches(message, "test"));
         }
+
+        [Fact]
+        public void Matches_ApplicationPropertyKey_ReturnsTrue()
+        {
+            var props = new Dictionary<string, object> { { "CustomerId", "12345" } };
+            var message = CreateMessage(applicationProperties: props);
+            Assert.True(MessageFilter.Matches(message, "customer"));
+        }
+
+        [Fact]
+        public void Matches_ApplicationPropertyValue_ReturnsTrue()
+        {
+            var props = new Dictionary<string, object> { { "Status", "Completed" } };
+            var message = CreateMessage(applicationProperties: props);
+            Assert.True(MessageFilter.Matches(message, "completed"));
+        }
+
+        [Fact]
+        public void Matches_ApplicationPropertyIntValue_ReturnsTrue()
+        {
+            var props = new Dictionary<string, object> { { "RetryCount", 42 } };
+            var message = CreateMessage(applicationProperties: props);
+            Assert.True(MessageFilter.Matches(message, "42"));
+        }
     }
 }
