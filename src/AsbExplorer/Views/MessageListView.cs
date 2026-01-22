@@ -552,36 +552,42 @@ public class MessageListView : FrameView
                 return true;
             }
 
-            // Letters A-Z (check without modifiers to handle Shift correctly)
-            var baseKey = key.KeyCode & ~KeyCode.ShiftMask & ~KeyCode.CtrlMask & ~KeyCode.AltMask;
-            if (baseKey >= KeyCode.A && baseKey <= KeyCode.Z && !key.IsCtrl && !key.IsAlt)
+            // Handle printable characters
+            if (!key.IsCtrl && !key.IsAlt)
             {
-                var ch = key.IsShift
-                    ? char.ToUpper((char)baseKey)
-                    : char.ToLower((char)baseKey);
-                ApplyFilter(_filterState.SearchTerm + ch, true);
-                return true;
-            }
+                var baseKey = key.KeyCode & ~KeyCode.ShiftMask & ~KeyCode.CtrlMask & ~KeyCode.AltMask;
+                var keyChar = (int)baseKey;
 
-            // Space
-            if (baseKey == KeyCode.Space && !key.IsCtrl && !key.IsAlt)
-            {
-                ApplyFilter(_filterState.SearchTerm + ' ', true);
-                return true;
-            }
+                // Letters A-Z
+                if (baseKey >= KeyCode.A && baseKey <= KeyCode.Z)
+                {
+                    var ch = key.IsShift
+                        ? char.ToUpper((char)baseKey)
+                        : char.ToLower((char)baseKey);
+                    ApplyFilter(_filterState.SearchTerm + ch, true);
+                    return true;
+                }
 
-            // Numbers
-            if (baseKey >= KeyCode.D0 && baseKey <= KeyCode.D9 && !key.IsCtrl && !key.IsAlt)
-            {
-                ApplyFilter(_filterState.SearchTerm + (char)('0' + (baseKey - KeyCode.D0)), true);
-                return true;
-            }
+                // Numbers 0-9
+                if (baseKey >= KeyCode.D0 && baseKey <= KeyCode.D9)
+                {
+                    ApplyFilter(_filterState.SearchTerm + (char)('0' + (baseKey - KeyCode.D0)), true);
+                    return true;
+                }
 
-            // Common symbols for searching (hyphen/minus, underscore, period)
-            if (baseKey == (KeyCode)'-' || baseKey == (KeyCode)'_' || baseKey == (KeyCode)'.')
-            {
-                ApplyFilter(_filterState.SearchTerm + (char)baseKey, true);
-                return true;
+                // Space
+                if (baseKey == KeyCode.Space)
+                {
+                    ApplyFilter(_filterState.SearchTerm + ' ', true);
+                    return true;
+                }
+
+                // Any other printable ASCII character (punctuation, symbols, etc.)
+                if (keyChar >= 32 && keyChar <= 126)
+                {
+                    ApplyFilter(_filterState.SearchTerm + (char)keyChar, true);
+                    return true;
+                }
             }
 
             return true; // Consume all keys in input mode
