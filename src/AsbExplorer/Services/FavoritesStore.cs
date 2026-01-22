@@ -52,7 +52,8 @@ public class FavoritesStore
         if (_favorites.Any(f =>
             f.ConnectionName == favorite.ConnectionName &&
             f.EntityPath == favorite.EntityPath &&
-            f.ParentEntityPath == favorite.ParentEntityPath))
+            f.ParentEntityPath == favorite.ParentEntityPath &&
+            f.EntityType == favorite.EntityType))
         {
             return;
         }
@@ -66,17 +67,49 @@ public class FavoritesStore
         _favorites.RemoveAll(f =>
             f.ConnectionName == favorite.ConnectionName &&
             f.EntityPath == favorite.EntityPath &&
-            f.ParentEntityPath == favorite.ParentEntityPath);
+            f.ParentEntityPath == favorite.ParentEntityPath &&
+            f.EntityType == favorite.EntityType);
 
         await SaveAsync();
     }
 
-    public bool IsFavorite(string connectionName, string entityPath, string? parentEntityPath)
+    public async Task MoveUpAsync(Favorite favorite)
+    {
+        var index = _favorites.FindIndex(f =>
+            f.ConnectionName == favorite.ConnectionName &&
+            f.EntityPath == favorite.EntityPath &&
+            f.ParentEntityPath == favorite.ParentEntityPath &&
+            f.EntityType == favorite.EntityType);
+
+        if (index > 0)
+        {
+            (_favorites[index], _favorites[index - 1]) = (_favorites[index - 1], _favorites[index]);
+            await SaveAsync();
+        }
+    }
+
+    public async Task MoveDownAsync(Favorite favorite)
+    {
+        var index = _favorites.FindIndex(f =>
+            f.ConnectionName == favorite.ConnectionName &&
+            f.EntityPath == favorite.EntityPath &&
+            f.ParentEntityPath == favorite.ParentEntityPath &&
+            f.EntityType == favorite.EntityType);
+
+        if (index >= 0 && index < _favorites.Count - 1)
+        {
+            (_favorites[index], _favorites[index + 1]) = (_favorites[index + 1], _favorites[index]);
+            await SaveAsync();
+        }
+    }
+
+    public bool IsFavorite(string connectionName, string entityPath, string? parentEntityPath, TreeNodeType entityType)
     {
         return _favorites.Any(f =>
             f.ConnectionName == connectionName &&
             f.EntityPath == entityPath &&
-            f.ParentEntityPath == parentEntityPath);
+            f.ParentEntityPath == parentEntityPath &&
+            f.EntityType == entityType);
     }
 
     private async Task SaveAsync()

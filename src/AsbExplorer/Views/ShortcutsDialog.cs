@@ -48,6 +48,7 @@ public class ShortcutsDialog : Dialog
             E             Focus Explorer
             M             Focus Messages
             D             Focus Details
+            F             Toggle favorite
             R             Refresh counts
             Shift+R       Refresh all counts
             ?             Show this help
