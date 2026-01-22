@@ -28,6 +28,8 @@ public class MessageListView : FrameView
     private string? _currentNamespace;
     private string? _currentEntityPath;
     private EntityColumnSettings? _currentColumnSettings;
+    private FilterState _filterState = FilterState.Empty;
+    private IReadOnlyList<PeekedMessage> _allMessages = [];
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
