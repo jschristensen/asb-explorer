@@ -102,10 +102,9 @@ public class ExportDialog : Dialog
         {
             Text = "Export",
             X = Pos.Center() - 10,
-            Y = Pos.AnchorEnd(1),
-            IsDefault = true
+            Y = Pos.AnchorEnd(1)
         };
-        exportButton.Accepting += OnExport;
+        exportButton.Accepting += (s, e) => DoExport();
 
         var cancelButton = new Button
         {
@@ -118,7 +117,7 @@ public class ExportDialog : Dialog
         Add(scopeLabel, _scopeRadio, separator, columnsLabel, checkboxContainer, exportButton, cancelButton);
     }
 
-    private void OnExport(object? sender, CommandEventArgs e)
+    private void DoExport()
     {
         var selectedColumns = new List<string>();
         for (var i = 0; i < _columnCheckboxes.Count; i++)
@@ -144,6 +143,13 @@ public class ExportDialog : Dialog
 
     protected override bool OnKeyDown(Key key)
     {
+        // Enter triggers export from anywhere
+        if (key.KeyCode == KeyCode.Enter)
+        {
+            DoExport();
+            return true;
+        }
+        // Escape cancels from anywhere
         if (key.KeyCode == KeyCode.Esc)
         {
             Application.RequestStop();
