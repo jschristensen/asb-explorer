@@ -419,6 +419,104 @@ public class MessageListView : FrameView
         }
     }
 
+    private void ApplyFilter(string searchTerm, bool isInputActive)
+    {
+        _filterState = new FilterState(searchTerm, isInputActive);
+
+        // Preserve selection if it's still visible after filtering
+        var previousSelectedSeq = _tableView.SelectedRow >= 0 && _tableView.SelectedRow < _messages.Count
+            ? _messages[_tableView.SelectedRow].SequenceNumber
+            : (long?)null;
+
+        // Re-apply filter to stored messages
+        var displayMessages = _filterState.HasFilter
+            ? MessageFilter.Apply(_allMessages, _filterState.SearchTerm)
+            : _allMessages;
+
+        // Prune selections
+        var displayedSeqs = displayMessages.Select(m => m.SequenceNumber).ToHashSet();
+        _selectedSequenceNumbers.IntersectWith(displayedSeqs);
+        UpdateRequeueButtonVisibility();
+
+        _messages = displayMessages;
+
+        // Rebuild table display
+        RebuildTable();
+
+        // Restore selection if still visible
+        if (previousSelectedSeq.HasValue)
+        {
+            var newIndex = _messages.ToList().FindIndex(m => m.SequenceNumber == previousSelectedSeq.Value);
+            if (newIndex >= 0)
+            {
+                _tableView.SelectedRow = newIndex;
+            }
+        }
+
+        UpdateTitle();
+    }
+
+    private void RebuildTable()
+    {
+        _dataTable.Rows.Clear();
+        _dataTable.Columns.Clear();
+
+        // Get visible columns from settings (or use defaults)
+        var visibleColumns = _currentColumnSettings != null
+            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
+            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
+
+        // Add checkbox column in DLQ mode
+        if (_isDeadLetterMode)
+        {
+            _dataTable.Columns.Add("", typeof(string)); // Checkbox column
+        }
+
+        // Add columns based on configuration
+        foreach (var col in visibleColumns)
+        {
+            var header = GetColumnHeader(col.Name);
+            _dataTable.Columns.Add(header, typeof(string));
+        }
+
+        // Add rows
+        foreach (var msg in _messages)
+        {
+            var row = new List<object>();
+
+            if (_isDeadLetterMode)
+            {
+                row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
+            }
+
+            foreach (var col in visibleColumns)
+            {
+                row.Add(GetColumnValue(msg, col));
+            }
+
+            _dataTable.Rows.Add(row.ToArray());
+        }
+
+        // Set column widths
+        _tableView.Style.ColumnStyles.Clear();
+        var colIndex = 0;
+
+        if (_isDeadLetterMode)
+        {
+            _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
+        }
+
+        foreach (var col in visibleColumns)
+        {
+            var style = GetColumnStyle(col.Name);
+            _tableView.Style.ColumnStyles.Add(colIndex++, style);
+        }
+
+        _tableView.Style.ExpandLastColumn = true;
+        _tableView.Table = new DataTableSource(_dataTable);
+        UpdateMessageCountLabel();
+    }
+
     protected override bool OnKeyDown(Key key)
     {
         // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
@@ -569,63 +667,7 @@ public class MessageListView : FrameView
         UpdateRequeueButtonVisibility();
 
         _messages = displayMessages;
-        _dataTable.Rows.Clear();
-        _dataTable.Columns.Clear();
-
-        // Get visible columns from settings (or use defaults)
-        var visibleColumns = _currentColumnSettings != null
-            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
-            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
-
-        // Add checkbox column in DLQ mode
-        if (_isDeadLetterMode)
-        {
-            _dataTable.Columns.Add("", typeof(string)); // Checkbox column
-        }
-
-        // Add columns based on configuration
-        foreach (var col in visibleColumns)
-        {
-            var header = GetColumnHeader(col.Name);
-            _dataTable.Columns.Add(header, typeof(string));
-        }
-
-        // Add rows
-        foreach (var msg in messages)
-        {
-            var row = new List<object>();
-
-            if (_isDeadLetterMode)
-            {
-                row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
-            }
-
-            foreach (var col in visibleColumns)
-            {
-                row.Add(GetColumnValue(msg, col));
-            }
-
-            _dataTable.Rows.Add(row.ToArray());
-        }
-
-        // Set column widths
-        _tableView.Style.ColumnStyles.Clear();
-        var colIndex = 0;
-
-        if (_isDeadLetterMode)
-        {
-            _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
-        }
-
-        foreach (var col in visibleColumns)
-        {
-            var style = GetColumnStyle(col.Name);
-            _tableView.Style.ColumnStyles.Add(colIndex++, style);
-        }
-
-        _tableView.Style.ExpandLastColumn = true;
-        _tableView.Table = new DataTableSource(_dataTable);
-        UpdateMessageCountLabel();
+        RebuildTable();
         UpdateTitle();
     }
 
