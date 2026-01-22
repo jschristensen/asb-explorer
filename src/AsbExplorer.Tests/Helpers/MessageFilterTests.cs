@@ -53,5 +53,40 @@ public class MessageFilterTests
             var message = CreateMessage(messageId: "order-12345");
             Assert.False(MessageFilter.Matches(message, "invoice"));
         }
+
+        [Fact]
+        public void Matches_Subject_ReturnsTrue()
+        {
+            var message = CreateMessage(subject: "Payment received");
+            Assert.True(MessageFilter.Matches(message, "payment"));
+        }
+
+        [Fact]
+        public void Matches_CorrelationId_ReturnsTrue()
+        {
+            var message = CreateMessage(correlationId: "corr-abc-123");
+            Assert.True(MessageFilter.Matches(message, "abc"));
+        }
+
+        [Fact]
+        public void Matches_SessionId_ReturnsTrue()
+        {
+            var message = CreateMessage(sessionId: "session-xyz");
+            Assert.True(MessageFilter.Matches(message, "xyz"));
+        }
+
+        [Fact]
+        public void Matches_ContentType_ReturnsTrue()
+        {
+            var message = CreateMessage(contentType: "application/json");
+            Assert.True(MessageFilter.Matches(message, "json"));
+        }
+
+        [Fact]
+        public void Matches_NullSubject_DoesNotThrow()
+        {
+            var message = CreateMessage(subject: null);
+            Assert.False(MessageFilter.Matches(message, "test"));
+        }
     }
 }

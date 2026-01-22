@@ -9,6 +9,15 @@ public static class MessageFilter
         if (string.IsNullOrEmpty(searchTerm))
             return true;
 
-        return message.MessageId.Contains(searchTerm, StringComparison.OrdinalIgnoreCase);
+        return ContainsIgnoreCase(message.MessageId, searchTerm)
+            || ContainsIgnoreCase(message.Subject, searchTerm)
+            || ContainsIgnoreCase(message.CorrelationId, searchTerm)
+            || ContainsIgnoreCase(message.SessionId, searchTerm)
+            || ContainsIgnoreCase(message.ContentType, searchTerm);
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string searchTerm)
+    {
+        return value?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
     }
 }
