@@ -172,4 +172,69 @@ public class MessageFilterTests
             Assert.True(MessageFilter.Matches(message, "order"));
         }
     }
+
+    public class ApplyTests
+    {
+        [Fact]
+        public void Apply_EmptySearchTerm_ReturnsAllMessages()
+        {
+            var messages = new List<PeekedMessage>
+            {
+                CreateMessage(messageId: "msg-1"),
+                CreateMessage(messageId: "msg-2"),
+                CreateMessage(messageId: "msg-3")
+            };
+
+            var result = MessageFilter.Apply(messages, "");
+
+            Assert.Equal(3, result.Count);
+        }
+
+        [Fact]
+        public void Apply_WithSearchTerm_ReturnsOnlyMatches()
+        {
+            var messages = new List<PeekedMessage>
+            {
+                CreateMessage(messageId: "order-1"),
+                CreateMessage(messageId: "invoice-2"),
+                CreateMessage(messageId: "order-3")
+            };
+
+            var result = MessageFilter.Apply(messages, "order");
+
+            Assert.Equal(2, result.Count);
+            Assert.All(result, m => Assert.Contains("order", m.MessageId));
+        }
+
+        [Fact]
+        public void Apply_NoMatches_ReturnsEmptyList()
+        {
+            var messages = new List<PeekedMessage>
+            {
+                CreateMessage(messageId: "msg-1"),
+                CreateMessage(messageId: "msg-2")
+            };
+
+            var result = MessageFilter.Apply(messages, "xyz");
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Apply_PreservesOrder()
+        {
+            var messages = new List<PeekedMessage>
+            {
+                CreateMessage(messageId: "order-1"),
+                CreateMessage(messageId: "order-2"),
+                CreateMessage(messageId: "order-3")
+            };
+
+            var result = MessageFilter.Apply(messages, "order");
+
+            Assert.Equal("order-1", result[0].MessageId);
+            Assert.Equal("order-2", result[1].MessageId);
+            Assert.Equal("order-3", result[2].MessageId);
+        }
+    }
 }

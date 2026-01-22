@@ -19,6 +19,14 @@ public static class MessageFilter
             || MatchesBody(message.Body, searchTerm);
     }
 
+    public static IReadOnlyList<PeekedMessage> Apply(IReadOnlyList<PeekedMessage> messages, string searchTerm)
+    {
+        if (string.IsNullOrEmpty(searchTerm))
+            return messages;
+
+        return messages.Where(m => Matches(m, searchTerm)).ToList();
+    }
+
     private static bool ContainsIgnoreCase(string? value, string searchTerm)
     {
         return value?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
