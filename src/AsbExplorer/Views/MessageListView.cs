@@ -53,10 +53,11 @@ public class MessageListView : FrameView
 
     public void SetEntityName(string? entityName)
     {
-        // Clear selection when switching to a different entity
+        // Clear filter and selection when switching to a different entity
         if (entityName != _currentEntityName)
         {
             _selectedSequenceNumbers.Clear();
+            _filterState = FilterState.Empty;
             RefreshCheckboxDisplay();
             UpdateRequeueButtonVisibility();
         }
@@ -66,10 +67,11 @@ public class MessageListView : FrameView
 
     public void SetEntity(string? @namespace, string? entityPath, string? displayName)
     {
-        // Clear selection when switching to a different entity
+        // Clear filter and selection when switching to a different entity
         if (@namespace != _currentNamespace || entityPath != _currentEntityPath)
         {
             _selectedSequenceNumbers.Clear();
+            _filterState = FilterState.Empty;
             RefreshCheckboxDisplay();
             UpdateRequeueButtonVisibility();
         }
