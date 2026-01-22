@@ -679,12 +679,30 @@ public class MainWindow : Window
     {
         var allMessages = _messageList.GetAllMessages();
         var selectedMessages = _messageList.GetSelectedMessages();
-        var columns = _messageList.GetCurrentColumns();
 
         if (allMessages.Count == 0)
         {
             MessageBox.ErrorQuery("Error", "No messages to export.", "OK");
             return;
+        }
+
+        // Build column list: core columns + all application properties from messages
+        var columns = _columnConfigService.GetDefaultColumns();
+
+        // Collect all unique application property names from all messages
+        var appPropNames = allMessages
+            .SelectMany(m => m.ApplicationProperties.Keys)
+            .Distinct()
+            .OrderBy(k => k)
+            .ToList();
+
+        // Add application properties as columns
+        foreach (var propName in appPropNames)
+        {
+            if (!columns.Any(c => c.Name == propName))
+            {
+                columns.Add(new ColumnConfig(propName, Visible: true, IsApplicationProperty: true));
+            }
         }
 
         _isModalOpen = true;
@@ -705,22 +723,9 @@ public class MainWindow : Window
         var exportDir = _settingsStore.Settings.ExportDirectory;
         if (string.IsNullOrEmpty(exportDir))
         {
-            // Prompt for export directory
-            var defaultDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var result = MessageBox.Query(
-                "Export Directory",
-                $"Enter export directory path:\n\nDefault: {defaultDir}",
-                "Use Default", "Cancel");
-
-            if (result == 1) // Cancel
+            exportDir = PromptForExportDirectory();
+            if (exportDir == null)
             {
-                return;
-            }
-
-            exportDir = defaultDir;
-            if (!Directory.Exists(exportDir))
-            {
-                MessageBox.ErrorQuery("Error", $"Directory does not exist: {exportDir}", "OK");
                 return;
             }
             await _settingsStore.SetExportDirectoryAsync(exportDir);
@@ -745,6 +750,80 @@ public class MainWindow : Window
         {
             MessageBox.ErrorQuery("Export Failed", $"Failed to export: {ex.Message}", "OK");
         }
+    }
+
+    private static string? PromptForExportDirectory()
+    {
+        // Default to current working directory
+        var defaultDir = Environment.CurrentDirectory;
+        string? result = null;
+
+        var inputDialog = new Dialog
+        {
+            Title = "Export Directory",
+            Width = 60,
+            Height = 8
+        };
+
+        var label = new Label
+        {
+            Text = "Enter export directory path:",
+            X = 1,
+            Y = 1
+        };
+
+        var textField = new TextField
+        {
+            Text = defaultDir,
+            X = 1,
+            Y = 2,
+            Width = Dim.Fill(1)
+        };
+
+        var okButton = new Button
+        {
+            Text = "OK",
+            X = Pos.Center() - 8,
+            Y = 4,
+            IsDefault = true
+        };
+        okButton.Accepting += (s, e) =>
+        {
+            var path = textField.Text?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                MessageBox.ErrorQuery("Error", "Please enter a directory path.", "OK");
+                return;
+            }
+            if (!Directory.Exists(path))
+            {
+                MessageBox.ErrorQuery("Error", $"Directory does not exist:\n{path}", "OK");
+                return;
+            }
+            result = path;
+            Application.RequestStop();
+        };
+
+        var cancelButton = new Button
+        {
+            Text = "Cancel",
+            X = Pos.Center() + 4,
+            Y = 4
+        };
+        cancelButton.Accepting += (s, e) => Application.RequestStop();
+
+        inputDialog.Add(label, textField, okButton, cancelButton);
+        inputDialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        Application.Run(inputDialog);
+        return result;
     }
 
     private static string SanitizeFilename(string name)
