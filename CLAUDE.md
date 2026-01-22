@@ -23,6 +23,19 @@ dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj
 - Views remain thin wrappers around Terminal.Gui components
 - Test the extracted logic, not the UI wiring
 
+## Branching & Worktrees
+
+Before creating a new branch or worktree:
+1. Ensure `main` has no uncommitted files
+2. Ensure `main` is in sync with `origin/main` (pull latest changes)
+
+**Brainstorming → Implementation flow** (using `superpowers:brainstorming`):
+1. Brainstorm and design on main (no commits)
+2. Create feature branch/worktree via `superpowers:using-git-worktrees`
+3. Commit design doc (`docs/plans/YYYY-MM-DD-<topic>-design.md`) to feature branch
+4. Create implementation plan via `superpowers:writing-plans`, commit to feature branch
+5. Plans only reach main as part of the PR merge for that feature
+
 ## Central Package Management
 
 Use CPM (Directory.Packages.props) for version management. Do not specify versions in .csproj files.
