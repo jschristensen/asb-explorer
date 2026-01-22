@@ -519,6 +519,71 @@ public class MessageListView : FrameView
 
     protected override bool OnKeyDown(Key key)
     {
+        // Filter input mode handling
+        if (_filterState.IsInputActive)
+        {
+            // Escape - cancel filter input, clear filter
+            if (key.KeyCode == KeyCode.Esc)
+            {
+                ApplyFilter("", false);
+                return true;
+            }
+
+            // Enter - accept filter, exit input mode
+            if (key.KeyCode == KeyCode.Enter)
+            {
+                ApplyFilter(_filterState.SearchTerm, false);
+                return true;
+            }
+
+            // Backspace - remove last character or exit if empty
+            if (key.KeyCode == KeyCode.Backspace)
+            {
+                if (_filterState.SearchTerm.Length > 0)
+                {
+                    ApplyFilter(_filterState.SearchTerm[..^1], true);
+                }
+                else
+                {
+                    ApplyFilter("", false);
+                }
+                return true;
+            }
+
+            // Printable characters - add to search term
+            if (key.KeyCode >= KeyCode.Space && key.KeyCode <= KeyCode.Z && !key.IsCtrl && !key.IsAlt)
+            {
+                var ch = key.IsShift
+                    ? char.ToUpper((char)key.KeyCode)
+                    : char.ToLower((char)key.KeyCode);
+                ApplyFilter(_filterState.SearchTerm + ch, true);
+                return true;
+            }
+
+            // Numbers and symbols
+            if (key.KeyCode >= KeyCode.D0 && key.KeyCode <= KeyCode.D9)
+            {
+                ApplyFilter(_filterState.SearchTerm + (char)('0' + (key.KeyCode - KeyCode.D0)), true);
+                return true;
+            }
+
+            // Common symbols for searching (hyphen/minus)
+            if (key.KeyCode == (KeyCode)'-')
+            {
+                ApplyFilter(_filterState.SearchTerm + '-', true);
+                return true;
+            }
+
+            return true; // Consume all keys in input mode
+        }
+
+        // "/" to enter filter mode
+        if (key.KeyCode == (KeyCode)'/')
+        {
+            ApplyFilter(_filterState.SearchTerm, true);
+            return true;
+        }
+
         // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
         if (key.IsShift && key.KeyCode == KeyCode.CursorLeft)
         {
