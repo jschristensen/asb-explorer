@@ -552,27 +552,35 @@ public class MessageListView : FrameView
                 return true;
             }
 
-            // Printable characters - add to search term
-            if (key.KeyCode >= KeyCode.Space && key.KeyCode <= KeyCode.Z && !key.IsCtrl && !key.IsAlt)
+            // Letters A-Z (check without modifiers to handle Shift correctly)
+            var baseKey = key.KeyCode & ~KeyCode.ShiftMask & ~KeyCode.CtrlMask & ~KeyCode.AltMask;
+            if (baseKey >= KeyCode.A && baseKey <= KeyCode.Z && !key.IsCtrl && !key.IsAlt)
             {
                 var ch = key.IsShift
-                    ? char.ToUpper((char)key.KeyCode)
-                    : char.ToLower((char)key.KeyCode);
+                    ? char.ToUpper((char)baseKey)
+                    : char.ToLower((char)baseKey);
                 ApplyFilter(_filterState.SearchTerm + ch, true);
                 return true;
             }
 
-            // Numbers and symbols
-            if (key.KeyCode >= KeyCode.D0 && key.KeyCode <= KeyCode.D9)
+            // Space
+            if (baseKey == KeyCode.Space && !key.IsCtrl && !key.IsAlt)
             {
-                ApplyFilter(_filterState.SearchTerm + (char)('0' + (key.KeyCode - KeyCode.D0)), true);
+                ApplyFilter(_filterState.SearchTerm + ' ', true);
                 return true;
             }
 
-            // Common symbols for searching (hyphen/minus)
-            if (key.KeyCode == (KeyCode)'-')
+            // Numbers
+            if (baseKey >= KeyCode.D0 && baseKey <= KeyCode.D9 && !key.IsCtrl && !key.IsAlt)
             {
-                ApplyFilter(_filterState.SearchTerm + '-', true);
+                ApplyFilter(_filterState.SearchTerm + (char)('0' + (baseKey - KeyCode.D0)), true);
+                return true;
+            }
+
+            // Common symbols for searching (hyphen/minus, underscore, period)
+            if (baseKey == (KeyCode)'-' || baseKey == (KeyCode)'_' || baseKey == (KeyCode)'.')
+            {
+                ApplyFilter(_filterState.SearchTerm + (char)baseKey, true);
                 return true;
             }
 
