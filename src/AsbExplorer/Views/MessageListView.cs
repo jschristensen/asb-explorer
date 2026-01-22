@@ -61,7 +61,7 @@ public class MessageListView : FrameView
             UpdateRequeueButtonVisibility();
         }
         _currentEntityName = entityName;
-        Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
+        UpdateTitle();
     }
 
     public void SetEntity(string? @namespace, string? entityPath, string? displayName)
@@ -77,7 +77,7 @@ public class MessageListView : FrameView
         _currentNamespace = @namespace;
         _currentEntityPath = entityPath;
         _currentEntityName = displayName;
-        Title = string.IsNullOrEmpty(displayName) ? "Messages" : $"Messages: {displayName}";
+        UpdateTitle();
 
         // Load column settings for this entity
         _currentColumnSettings = @namespace != null && entityPath != null
@@ -401,6 +401,24 @@ public class MessageListView : FrameView
         }
     }
 
+    private void UpdateTitle()
+    {
+        var baseName = string.IsNullOrEmpty(_currentEntityName) ? "Messages" : $"Messages: {_currentEntityName}";
+
+        if (_filterState.IsInputActive)
+        {
+            Title = $"{baseName} \"{_filterState.SearchTerm}▌\"";
+        }
+        else if (_filterState.HasFilter)
+        {
+            Title = $"{baseName} \"{_filterState.SearchTerm}\" ({_messages.Count} of {_allMessages.Count})";
+        }
+        else
+        {
+            Title = baseName;
+        }
+    }
+
     protected override bool OnKeyDown(Key key)
     {
         // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
@@ -608,6 +626,7 @@ public class MessageListView : FrameView
         _tableView.Style.ExpandLastColumn = true;
         _tableView.Table = new DataTableSource(_dataTable);
         UpdateMessageCountLabel();
+        UpdateTitle();
     }
 
     private static string GetColumnHeader(string columnName) => columnName switch
