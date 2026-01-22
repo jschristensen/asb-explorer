@@ -28,6 +28,8 @@ public class MessageListView : FrameView
     private string? _currentNamespace;
     private string? _currentEntityPath;
     private EntityColumnSettings? _currentColumnSettings;
+    private FilterState _filterState = FilterState.Empty;
+    private IReadOnlyList<PeekedMessage> _allMessages = [];
 
     public event Action<PeekedMessage>? MessageSelected;
     public event Action<bool>? AutoRefreshToggled;
@@ -51,23 +53,25 @@ public class MessageListView : FrameView
 
     public void SetEntityName(string? entityName)
     {
-        // Clear selection when switching to a different entity
+        // Clear filter and selection when switching to a different entity
         if (entityName != _currentEntityName)
         {
             _selectedSequenceNumbers.Clear();
+            _filterState = FilterState.Empty;
             RefreshCheckboxDisplay();
             UpdateRequeueButtonVisibility();
         }
         _currentEntityName = entityName;
-        Title = string.IsNullOrEmpty(entityName) ? "Messages" : $"Messages: {entityName}";
+        UpdateTitle();
     }
 
     public void SetEntity(string? @namespace, string? entityPath, string? displayName)
     {
-        // Clear selection when switching to a different entity
+        // Clear filter and selection when switching to a different entity
         if (@namespace != _currentNamespace || entityPath != _currentEntityPath)
         {
             _selectedSequenceNumbers.Clear();
+            _filterState = FilterState.Empty;
             RefreshCheckboxDisplay();
             UpdateRequeueButtonVisibility();
         }
@@ -75,7 +79,7 @@ public class MessageListView : FrameView
         _currentNamespace = @namespace;
         _currentEntityPath = entityPath;
         _currentEntityName = displayName;
-        Title = string.IsNullOrEmpty(displayName) ? "Messages" : $"Messages: {displayName}";
+        UpdateTitle();
 
         // Load column settings for this entity
         _currentColumnSettings = @namespace != null && entityPath != null
@@ -399,8 +403,203 @@ public class MessageListView : FrameView
         }
     }
 
+    private void UpdateTitle()
+    {
+        var baseName = string.IsNullOrEmpty(_currentEntityName) ? "Messages" : $"Messages: {_currentEntityName}";
+
+        if (_filterState.IsInputActive)
+        {
+            Title = $"{baseName} \"{_filterState.SearchTerm}▌\"";
+        }
+        else if (_filterState.HasFilter)
+        {
+            Title = $"{baseName} \"{_filterState.SearchTerm}\" ({_messages.Count} of {_allMessages.Count})";
+        }
+        else
+        {
+            Title = baseName;
+        }
+    }
+
+    private void ApplyFilter(string searchTerm, bool isInputActive)
+    {
+        _filterState = new FilterState(searchTerm, isInputActive);
+
+        // Preserve selection if it's still visible after filtering
+        var previousSelectedSeq = _tableView.SelectedRow >= 0 && _tableView.SelectedRow < _messages.Count
+            ? _messages[_tableView.SelectedRow].SequenceNumber
+            : (long?)null;
+
+        // Re-apply filter to stored messages
+        var displayMessages = _filterState.HasFilter
+            ? MessageFilter.Apply(_allMessages, _filterState.SearchTerm)
+            : _allMessages;
+
+        // Prune selections
+        var displayedSeqs = displayMessages.Select(m => m.SequenceNumber).ToHashSet();
+        _selectedSequenceNumbers.IntersectWith(displayedSeqs);
+        UpdateRequeueButtonVisibility();
+
+        _messages = displayMessages;
+
+        // Rebuild table display
+        RebuildTable();
+
+        // Restore selection if still visible
+        if (previousSelectedSeq.HasValue)
+        {
+            var newIndex = _messages.ToList().FindIndex(m => m.SequenceNumber == previousSelectedSeq.Value);
+            if (newIndex >= 0)
+            {
+                _tableView.SelectedRow = newIndex;
+            }
+        }
+
+        UpdateTitle();
+    }
+
+    private void RebuildTable()
+    {
+        _dataTable.Rows.Clear();
+        _dataTable.Columns.Clear();
+
+        // Get visible columns from settings (or use defaults)
+        var visibleColumns = _currentColumnSettings != null
+            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
+            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
+
+        // Add checkbox column in DLQ mode
+        if (_isDeadLetterMode)
+        {
+            _dataTable.Columns.Add("", typeof(string)); // Checkbox column
+        }
+
+        // Add columns based on configuration
+        foreach (var col in visibleColumns)
+        {
+            var header = GetColumnHeader(col.Name);
+            _dataTable.Columns.Add(header, typeof(string));
+        }
+
+        // Add rows
+        foreach (var msg in _messages)
+        {
+            var row = new List<object>();
+
+            if (_isDeadLetterMode)
+            {
+                row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
+            }
+
+            foreach (var col in visibleColumns)
+            {
+                row.Add(GetColumnValue(msg, col));
+            }
+
+            _dataTable.Rows.Add(row.ToArray());
+        }
+
+        // Set column widths
+        _tableView.Style.ColumnStyles.Clear();
+        var colIndex = 0;
+
+        if (_isDeadLetterMode)
+        {
+            _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
+        }
+
+        foreach (var col in visibleColumns)
+        {
+            var style = GetColumnStyle(col.Name);
+            _tableView.Style.ColumnStyles.Add(colIndex++, style);
+        }
+
+        _tableView.Style.ExpandLastColumn = true;
+        _tableView.Table = new DataTableSource(_dataTable);
+        UpdateMessageCountLabel();
+    }
+
     protected override bool OnKeyDown(Key key)
     {
+        // Filter input mode handling
+        if (_filterState.IsInputActive)
+        {
+            // Escape - cancel filter input, clear filter
+            if (key.KeyCode == KeyCode.Esc)
+            {
+                ApplyFilter("", false);
+                return true;
+            }
+
+            // Enter - accept filter, exit input mode
+            if (key.KeyCode == KeyCode.Enter)
+            {
+                ApplyFilter(_filterState.SearchTerm, false);
+                return true;
+            }
+
+            // Backspace - remove last character or exit if empty
+            if (key.KeyCode == KeyCode.Backspace)
+            {
+                if (_filterState.SearchTerm.Length > 0)
+                {
+                    ApplyFilter(_filterState.SearchTerm[..^1], true);
+                }
+                else
+                {
+                    ApplyFilter("", false);
+                }
+                return true;
+            }
+
+            // Handle printable characters
+            if (!key.IsCtrl && !key.IsAlt)
+            {
+                var baseKey = key.KeyCode & ~KeyCode.ShiftMask & ~KeyCode.CtrlMask & ~KeyCode.AltMask;
+                var keyChar = (int)baseKey;
+
+                // Letters A-Z
+                if (baseKey >= KeyCode.A && baseKey <= KeyCode.Z)
+                {
+                    var ch = key.IsShift
+                        ? char.ToUpper((char)baseKey)
+                        : char.ToLower((char)baseKey);
+                    ApplyFilter(_filterState.SearchTerm + ch, true);
+                    return true;
+                }
+
+                // Numbers 0-9
+                if (baseKey >= KeyCode.D0 && baseKey <= KeyCode.D9)
+                {
+                    ApplyFilter(_filterState.SearchTerm + (char)('0' + (baseKey - KeyCode.D0)), true);
+                    return true;
+                }
+
+                // Space
+                if (baseKey == KeyCode.Space)
+                {
+                    ApplyFilter(_filterState.SearchTerm + ' ', true);
+                    return true;
+                }
+
+                // Any other printable ASCII character (punctuation, symbols, etc.)
+                if (keyChar >= 32 && keyChar <= 126)
+                {
+                    ApplyFilter(_filterState.SearchTerm + (char)keyChar, true);
+                    return true;
+                }
+            }
+
+            return true; // Consume all keys in input mode
+        }
+
+        // "/" to enter filter mode
+        if (key.KeyCode == (KeyCode)'/')
+        {
+            ApplyFilter(_filterState.SearchTerm, true);
+            return true;
+        }
+
         // Shift+Left/Right for horizontal scrolling (changes ColumnOffset)
         if (key.IsShift && key.KeyCode == KeyCode.CursorLeft)
         {
@@ -536,69 +735,21 @@ public class MessageListView : FrameView
 
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
     {
-        // Prune stale selections (keep only sequence numbers that exist in new messages)
-        var newSeqs = messages.Select(m => m.SequenceNumber).ToHashSet();
-        _selectedSequenceNumbers.IntersectWith(newSeqs);
+        _allMessages = messages;
+
+        // Apply filter if active
+        var displayMessages = _filterState.HasFilter
+            ? MessageFilter.Apply(messages, _filterState.SearchTerm)
+            : messages;
+
+        // Prune stale selections (keep only sequence numbers that exist in displayed messages)
+        var displayedSeqs = displayMessages.Select(m => m.SequenceNumber).ToHashSet();
+        _selectedSequenceNumbers.IntersectWith(displayedSeqs);
         UpdateRequeueButtonVisibility();
 
-        _messages = messages;
-        _dataTable.Rows.Clear();
-        _dataTable.Columns.Clear();
-
-        // Get visible columns from settings (or use defaults)
-        var visibleColumns = _currentColumnSettings != null
-            ? _columnConfigService.GetVisibleColumns(_currentColumnSettings.Columns)
-            : _columnConfigService.GetDefaultColumns().Where(c => c.Visible).ToList();
-
-        // Add checkbox column in DLQ mode
-        if (_isDeadLetterMode)
-        {
-            _dataTable.Columns.Add("", typeof(string)); // Checkbox column
-        }
-
-        // Add columns based on configuration
-        foreach (var col in visibleColumns)
-        {
-            var header = GetColumnHeader(col.Name);
-            _dataTable.Columns.Add(header, typeof(string));
-        }
-
-        // Add rows
-        foreach (var msg in messages)
-        {
-            var row = new List<object>();
-
-            if (_isDeadLetterMode)
-            {
-                row.Add(_selectedSequenceNumbers.Contains(msg.SequenceNumber) ? "☑" : "☐");
-            }
-
-            foreach (var col in visibleColumns)
-            {
-                row.Add(GetColumnValue(msg, col));
-            }
-
-            _dataTable.Rows.Add(row.ToArray());
-        }
-
-        // Set column widths
-        _tableView.Style.ColumnStyles.Clear();
-        var colIndex = 0;
-
-        if (_isDeadLetterMode)
-        {
-            _tableView.Style.ColumnStyles.Add(colIndex++, new ColumnStyle { MinWidth = 2, MaxWidth = 2 }); // Checkbox
-        }
-
-        foreach (var col in visibleColumns)
-        {
-            var style = GetColumnStyle(col.Name);
-            _tableView.Style.ColumnStyles.Add(colIndex++, style);
-        }
-
-        _tableView.Style.ExpandLastColumn = true;
-        _tableView.Table = new DataTableSource(_dataTable);
-        UpdateMessageCountLabel();
+        _messages = displayMessages;
+        RebuildTable();
+        UpdateTitle();
     }
 
     private static string GetColumnHeader(string columnName) => columnName switch
