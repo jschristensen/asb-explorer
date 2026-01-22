@@ -1,3 +1,4 @@
+using System.Text;
 using AsbExplorer.Models;
 
 namespace AsbExplorer.Helpers;
@@ -14,7 +15,8 @@ public static class MessageFilter
             || ContainsIgnoreCase(message.CorrelationId, searchTerm)
             || ContainsIgnoreCase(message.SessionId, searchTerm)
             || ContainsIgnoreCase(message.ContentType, searchTerm)
-            || MatchesApplicationProperties(message.ApplicationProperties, searchTerm);
+            || MatchesApplicationProperties(message.ApplicationProperties, searchTerm)
+            || MatchesBody(message.Body, searchTerm);
     }
 
     private static bool ContainsIgnoreCase(string? value, string searchTerm)
@@ -32,5 +34,19 @@ public static class MessageFilter
                 return true;
         }
         return false;
+    }
+
+    private static bool MatchesBody(BinaryData body, string searchTerm)
+    {
+        try
+        {
+            var text = Encoding.UTF8.GetString(body.ToArray());
+            return ContainsIgnoreCase(text, searchTerm);
+        }
+        catch
+        {
+            // Body is not valid UTF-8, skip body matching
+            return false;
+        }
     }
 }

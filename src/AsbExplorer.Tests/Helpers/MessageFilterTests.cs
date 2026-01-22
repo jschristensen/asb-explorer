@@ -112,5 +112,64 @@ public class MessageFilterTests
             var message = CreateMessage(applicationProperties: props);
             Assert.True(MessageFilter.Matches(message, "42"));
         }
+
+        [Fact]
+        public void Matches_BodyContent_ReturnsTrue()
+        {
+            var message = CreateMessage(bodyText: "{\"orderId\": \"ORD-999\"}");
+            Assert.True(MessageFilter.Matches(message, "ORD-999"));
+        }
+
+        [Fact]
+        public void Matches_BodyContent_CaseInsensitive()
+        {
+            var message = CreateMessage(bodyText: "{\"status\": \"COMPLETED\"}");
+            Assert.True(MessageFilter.Matches(message, "completed"));
+        }
+
+        [Fact]
+        public void Matches_BinaryBody_DoesNotThrow()
+        {
+            // Create message with invalid UTF-8 bytes
+            var invalidUtf8 = new byte[] { 0xFF, 0xFE, 0x00, 0x01 };
+            var message = new PeekedMessage(
+                MessageId: "msg-1",
+                SequenceNumber: 1,
+                EnqueuedTime: DateTimeOffset.UtcNow,
+                Subject: null,
+                DeliveryCount: 1,
+                ContentType: null,
+                CorrelationId: null,
+                SessionId: null,
+                TimeToLive: TimeSpan.FromHours(1),
+                ScheduledEnqueueTime: null,
+                ApplicationProperties: new Dictionary<string, object>(),
+                Body: BinaryData.FromBytes(invalidUtf8)
+            );
+            // Should not throw, and should not match (binary content)
+            Assert.False(MessageFilter.Matches(message, "test"));
+        }
+
+        [Fact]
+        public void Matches_BinaryBody_StillMatchesOtherFields()
+        {
+            var invalidUtf8 = new byte[] { 0xFF, 0xFE, 0x00, 0x01 };
+            var message = new PeekedMessage(
+                MessageId: "order-123",
+                SequenceNumber: 1,
+                EnqueuedTime: DateTimeOffset.UtcNow,
+                Subject: null,
+                DeliveryCount: 1,
+                ContentType: null,
+                CorrelationId: null,
+                SessionId: null,
+                TimeToLive: TimeSpan.FromHours(1),
+                ScheduledEnqueueTime: null,
+                ApplicationProperties: new Dictionary<string, object>(),
+                Body: BinaryData.FromBytes(invalidUtf8)
+            );
+            // Should match on MessageId even though body is binary
+            Assert.True(MessageFilter.Matches(message, "order"));
+        }
     }
 }
