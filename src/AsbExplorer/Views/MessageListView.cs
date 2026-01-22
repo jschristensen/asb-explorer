@@ -14,6 +14,7 @@ public class MessageListView : FrameView
     private IReadOnlyList<PeekedMessage> _messages = [];
     private readonly Button _requeueButton;
     private readonly Button _clearAllButton;
+    private readonly Button _exportButton;
     private bool _isDeadLetterMode;
     private readonly HashSet<long> _selectedSequenceNumbers = [];
     private string? _currentEntityName;
@@ -36,6 +37,7 @@ public class MessageListView : FrameView
     public event Action<PeekedMessage>? EditMessageRequested;
     public event Action? RequeueSelectedRequested;
     public event Action<int>? LimitChanged;
+    public event Action? ExportRequested;
 
     public int CurrentLimit => LimitOptions[_currentLimitIndex];
 
@@ -159,6 +161,16 @@ public class MessageListView : FrameView
 
         _clearAllButton.Accepting += (s, e) => ClearSelection();
 
+        _exportButton = new Button
+        {
+            Text = "Export",
+            X = 0,
+            Y = 0,
+            Visible = false
+        };
+
+        _exportButton.Accepting += (s, e) => ExportRequested?.Invoke();
+
         _dataTable = new DataTable();
 
         _tableView = new TableView
@@ -280,7 +292,7 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
+        Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _exportButton, _requeueButton, _clearAllButton, _tableView);
     }
 
     private void ShowLimitDialog()
@@ -708,6 +720,13 @@ public class MessageListView : FrameView
             .ToList();
     }
 
+    public IReadOnlyList<PeekedMessage> GetAllMessages() => _messages;
+
+    public List<ColumnConfig> GetCurrentColumns()
+    {
+        return _currentColumnSettings?.Columns ?? _columnConfigService.GetDefaultColumns();
+    }
+
     public void ClearSelection()
     {
         _selectedSequenceNumbers.Clear();
@@ -733,6 +752,11 @@ public class MessageListView : FrameView
         }
     }
 
+    private void UpdateExportButtonVisibility()
+    {
+        _exportButton.Visible = _messages.Count > 0;
+    }
+
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
     {
         _allMessages = messages;
@@ -750,6 +774,7 @@ public class MessageListView : FrameView
         _messages = displayMessages;
         RebuildTable();
         UpdateTitle();
+        UpdateExportButtonVisibility();
     }
 
     private static string GetColumnHeader(string columnName) => columnName switch
@@ -810,6 +835,7 @@ public class MessageListView : FrameView
         _tableView.Table = new DataTableSource(_dataTable);
         _totalMessageCount = null;
         UpdateRequeueButtonVisibility();
+        UpdateExportButtonVisibility();
         UpdateMessageCountLabel();
     }
 
