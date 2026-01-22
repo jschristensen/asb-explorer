@@ -30,6 +30,8 @@ public class TreePanel : FrameView
     public event Action? RefreshCompleted;
     public event Action<bool>? AutoRefreshTreeCountsToggled;
 
+    public TreeNodeModel? SelectedNode => _treeView.SelectedObject;
+
     public TreePanel(
         ServiceBusConnectionService connectionService,
         ConnectionStore connectionStore,
@@ -80,7 +82,7 @@ public class TreePanel : FrameView
         _treeView = new TreeView<TreeNodeModel>
         {
             X = 0,
-            Y = Pos.Bottom(_autoRefreshCheckbox),
+            Y = Pos.Bottom(_autoRefreshCheckbox) + 1,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             TreeBuilder = new DelegateTreeBuilder<TreeNodeModel>(
@@ -102,19 +104,25 @@ public class TreePanel : FrameView
             }
         };
 
-        // Handle right-click for context menu on connection nodes
+        // Handle right-click for context menu on connection and favorite nodes
         _treeView.MouseClick += (s, e) =>
         {
             if (e.Flags.HasFlag(MouseFlags.Button3Clicked))
             {
                 // Get the node at the clicked row (not just the selected node)
                 var node = _treeView.GetObjectOnRow(e.Position.Y);
+                // Calculate screen position for the context menu
+                var screenX = e.Position.X + _treeView.Frame.X + Frame.X + 1;
+                var screenY = e.Position.Y + _treeView.Frame.Y + Frame.Y + 1;
+
                 if (node?.NodeType == TreeNodeType.Namespace && node.ConnectionName is not null)
                 {
-                    // Calculate screen position for the context menu
-                    var screenX = e.Position.X + _treeView.Frame.X + Frame.X + 1;
-                    var screenY = e.Position.Y + _treeView.Frame.Y + Frame.Y + 1;
                     ShowConnectionContextMenu(node.ConnectionName, screenX, screenY);
+                    e.Handled = true;
+                }
+                else if (node?.NodeType == TreeNodeType.Favorite)
+                {
+                    ShowFavoriteContextMenu(node, screenX, screenY);
                     e.Handled = true;
                 }
             }
@@ -210,11 +218,118 @@ public class TreePanel : FrameView
         }
     }
 
+    private void ShowFavoriteContextMenu(TreeNodeModel node, int screenX, int screenY)
+    {
+        string? selectedAction = null;
+
+        var dialog = new Dialog
+        {
+            Title = "",
+            Width = 13,
+            Height = 5,
+            X = screenX,
+            Y = screenY
+        };
+
+        var moveUpButton = new Button
+        {
+            X = Pos.AnchorEnd(9),
+            Y = 0,
+            Text = "Move Up",
+            NoPadding = true
+        };
+        moveUpButton.Accepting += (s, e) =>
+        {
+            selectedAction = "moveup";
+            Application.RequestStop();
+        };
+
+        var moveDownButton = new Button
+        {
+            X = Pos.AnchorEnd(9),
+            Y = 1,
+            Text = "Move Down",
+            NoPadding = true
+        };
+        moveDownButton.Accepting += (s, e) =>
+        {
+            selectedAction = "movedown";
+            Application.RequestStop();
+        };
+
+        dialog.Add(moveUpButton, moveDownButton);
+
+        // Escape to close
+        dialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        // Click outside to close
+        void onMouseEvent(object? sender, MouseEventArgs e)
+        {
+            if (e.Flags.HasFlag(MouseFlags.Button1Clicked))
+            {
+                var dialogFrame = dialog.Frame;
+                if (e.ScreenPosition.X < dialogFrame.X || e.ScreenPosition.X >= dialogFrame.X + dialogFrame.Width ||
+                    e.ScreenPosition.Y < dialogFrame.Y || e.ScreenPosition.Y >= dialogFrame.Y + dialogFrame.Height)
+                {
+                    Application.RequestStop();
+                }
+            }
+        }
+
+        Application.MouseEvent += onMouseEvent;
+        try
+        {
+            Application.Run(dialog);
+        }
+        finally
+        {
+            Application.MouseEvent -= onMouseEvent;
+        }
+
+        // Convert TreeNodeModel back to Favorite and invoke action
+        if (selectedAction is not null && node.ConnectionName is not null && node.EntityPath is not null)
+        {
+            var entityType = node.SourceEntityType ?? TreeNodeType.Queue;
+            var favorite = new Favorite(node.ConnectionName, node.EntityPath, entityType, node.ParentEntityPath);
+
+            if (selectedAction == "moveup")
+            {
+                _ = MoveFavoriteAndRefreshAsync(favorite, true);
+            }
+            else if (selectedAction == "movedown")
+            {
+                _ = MoveFavoriteAndRefreshAsync(favorite, false);
+            }
+        }
+    }
+
     private static void OnTreeDrawLine(object? sender, DrawTreeViewLineEventArgs<TreeNodeModel> e)
     {
         // Only customize model text region
         if (e.Model is null || e.IndexOfModelText < 0)
         {
+            return;
+        }
+
+        // Style section header nodes (Favorites, Connections) with yellow accent color
+        if (e.Model.NodeType is TreeNodeType.FavoritesRoot or TreeNodeType.ConnectionsRoot)
+        {
+            if (e.Tree.ColorScheme == null) return;
+            var headerBg = e.Tree.ColorScheme.Normal.Background;
+            var headerAttr = new Attribute(SolarizedTheme.JsonColors[JsonTokenType.Key], headerBg);
+
+            for (var i = e.IndexOfModelText; i < e.Cells.Count; i++)
+            {
+                var cell = e.Cells[i];
+                e.Cells[i] = new Cell(headerAttr, cell.IsDirty, cell.Rune);
+            }
             return;
         }
 
@@ -267,11 +382,13 @@ public class TreePanel : FrameView
             _treeView.AddObject(root);
         }
 
-        // Expand Connections node by default
-        var connectionsNode = roots.FirstOrDefault(r => r.NodeType == TreeNodeType.ConnectionsRoot);
-        if (connectionsNode is not null)
+        // Expand Favorites and Connections nodes by default
+        foreach (var root in roots)
         {
-            _treeView.Expand(connectionsNode);
+            if (root.NodeType is TreeNodeType.FavoritesRoot or TreeNodeType.ConnectionsRoot)
+            {
+                _treeView.Expand(root);
+            }
         }
 
         _treeView.SetNeedsDraw();
@@ -281,6 +398,27 @@ public class TreePanel : FrameView
     {
         _childrenCache.TryRemove("connections", out _);
         LoadRootNodes();
+    }
+
+    public void RefreshFavorites()
+    {
+        // Clear cached favorites children so they reload from the store
+        _childrenCache.TryRemove("favorites", out _);
+        LoadRootNodes();
+    }
+
+    private async Task MoveFavoriteAndRefreshAsync(Favorite favorite, bool moveUp)
+    {
+        if (moveUp)
+        {
+            await _favoritesStore.MoveUpAsync(favorite);
+        }
+        else
+        {
+            await _favoritesStore.MoveDownAsync(favorite);
+        }
+
+        Application.Invoke(RefreshFavorites);
     }
 
     public void RefreshSelectedNodeCounts()
@@ -322,6 +460,14 @@ public class TreePanel : FrameView
                 if (children.Count > 0 && children[0].ConnectionName is not null)
                 {
                     var parentId = kvp.Key;
+
+                    // Handle favorites separately - they don't have a "parent node" in the usual sense
+                    if (parentId == "favorites")
+                    {
+                        await LoadFavoriteCountsAsync(children);
+                        continue;
+                    }
+
                     var parentNode = FindNodeById(parentId);
                     if (parentNode is not null &&
                         (parentNode.NodeType == TreeNodeType.QueuesFolder ||
@@ -364,6 +510,11 @@ public class TreePanel : FrameView
         {
             var favs = GetFavoriteNodes().ToList();
             _childrenCache[node.Id] = favs;
+            // Load counts for favorites in background
+            if (favs.Count > 0)
+            {
+                _ = LoadFavoriteCountsAsync(favs);
+            }
             return favs;
         }
 
@@ -483,13 +634,48 @@ public class TreePanel : FrameView
     private IEnumerable<TreeNodeModel> GetFavoriteNodes()
     {
         return _favoritesStore.Favorites.Select(f => new TreeNodeModel(
-            Id: $"fav:{f.ConnectionName}/{f.EntityPath}",
+            Id: $"fav:{f.ConnectionName}/{f.EntityPath}" + (f.IsDlq ? ":dlq" : ""),
             DisplayName: f.DisplayName,
             NodeType: TreeNodeType.Favorite,
             ConnectionName: f.ConnectionName,
             EntityPath: f.EntityPath,
-            ParentEntityPath: f.ParentEntityPath
+            ParentEntityPath: f.ParentEntityPath,
+            SourceEntityType: f.EntityType
         ));
+    }
+
+    private async Task LoadFavoriteCountsAsync(List<TreeNodeModel> favorites)
+    {
+        // Mark all as loading
+        for (int i = 0; i < favorites.Count; i++)
+        {
+            favorites[i] = favorites[i] with { IsLoadingCount = true };
+        }
+
+        // Fetch counts for each favorite
+        var tasks = favorites.Select(async fav =>
+        {
+            if (fav.ConnectionName is null) return fav with { IsLoadingCount = false };
+            return await FetchNodeCountsAsync(fav, fav.ConnectionName);
+        });
+
+        var updatedFavorites = await Task.WhenAll(tasks);
+
+        // Update the cache
+        for (int i = 0; i < updatedFavorites.Length && i < favorites.Count; i++)
+        {
+            favorites[i] = updatedFavorites[i];
+        }
+
+        // Refresh the tree
+        Application.Invoke(() =>
+        {
+            var favRoot = _treeView.Objects.FirstOrDefault(r => r.NodeType == TreeNodeType.FavoritesRoot);
+            if (favRoot is not null)
+            {
+                RefreshTreeUi(favRoot);
+            }
+        });
     }
 
     private Task<List<TreeNodeModel>> LoadQueuesAndTopicsAsync(TreeNodeModel ns)
@@ -570,7 +756,12 @@ public class TreePanel : FrameView
     {
         try
         {
-            if (node.NodeType == TreeNodeType.Queue)
+            // For favorites, use SourceEntityType to determine how to fetch counts
+            var effectiveType = node.NodeType == TreeNodeType.Favorite
+                ? node.SourceEntityType ?? TreeNodeType.Favorite
+                : node.NodeType;
+
+            if (effectiveType == TreeNodeType.Queue)
             {
                 var countTask = _connectionService.GetQueueMessageCountAsync(connectionName, node.EntityPath!);
                 var dlqCountTask = _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!);
@@ -578,7 +769,7 @@ public class TreePanel : FrameView
                 return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
             }
 
-            if (node.NodeType == TreeNodeType.TopicSubscription)
+            if (effectiveType == TreeNodeType.TopicSubscription)
             {
                 var countTask = _connectionService.GetSubscriptionMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
                 var dlqCountTask = _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!);
@@ -586,7 +777,7 @@ public class TreePanel : FrameView
                 return node with { MessageCount = countTask.Result, DlqMessageCount = dlqCountTask.Result, IsLoadingCount = false };
             }
 
-            var count = node.NodeType switch
+            var count = effectiveType switch
             {
                 TreeNodeType.QueueDeadLetter => await _connectionService.GetQueueDlqMessageCountAsync(connectionName, node.EntityPath!),
                 TreeNodeType.TopicSubscriptionDeadLetter => await _connectionService.GetSubscriptionDlqMessageCountAsync(connectionName, node.ParentEntityPath!, node.EntityPath!),

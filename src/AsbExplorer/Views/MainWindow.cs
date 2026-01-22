@@ -199,12 +199,20 @@ public class MainWindow : Window
             return false;
         });
 
+        AddCommand(Command.Select, _ =>  // F - Toggle favorite
+        {
+            if (IsFocusOnTextInput()) return false;
+            ToggleFavorite();
+            return true;
+        });
+
         // Register hotkey bindings (work regardless of which child view has focus)
         HotKeyBindings.Add(Key.E, Command.StartOfPage);
         HotKeyBindings.Add(Key.M, Command.EndOfPage);
         HotKeyBindings.Add(Key.D, Command.PageUp);
         HotKeyBindings.Add(Key.P, Command.PageDown);
         HotKeyBindings.Add(Key.B, Command.PageLeft);
+        HotKeyBindings.Add(Key.F, Command.Select);
 
         // Dynamic panel sizing: 20/80 when Details is focused, 40/60 otherwise
         // React to user-initiated focus changes via keyboard and mouse clicks
@@ -427,14 +435,19 @@ public class MainWindow : Window
 
         try
         {
-            var isDeadLetter = node.NodeType is
+            // For favorites, use SourceEntityType to determine actual entity type
+            var effectiveType = node.NodeType == TreeNodeType.Favorite
+                ? node.SourceEntityType ?? node.NodeType
+                : node.NodeType;
+
+            var isDeadLetter = effectiveType is
                 TreeNodeType.QueueDeadLetter or
                 TreeNodeType.TopicSubscriptionDeadLetter;
 
             _messageList.IsDeadLetterMode = isDeadLetter;
 
             // Build entity display name and settings path
-            var entityDisplayName = node.NodeType switch
+            var entityDisplayName = effectiveType switch
             {
                 TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
                     => $"{node.ParentEntityPath}/{node.EntityPath}",
@@ -442,7 +455,7 @@ public class MainWindow : Window
             };
 
             // Build entity path for column settings (consistent across DLQ/non-DLQ)
-            var entitySettingsPath = node.NodeType switch
+            var entitySettingsPath = effectiveType switch
             {
                 TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
                     => $"{node.ParentEntityPath}/subscriptions/{node.EntityPath}",
@@ -455,7 +468,7 @@ public class MainWindow : Window
             }
             _messageList.SetEntity(node.ConnectionName, entitySettingsPath, entityDisplayName);
 
-            var topicName = node.NodeType is
+            var topicName = effectiveType is
                 TreeNodeType.TopicSubscription or
                 TreeNodeType.TopicSubscriptionDeadLetter
                 ? node.ParentEntityPath
@@ -469,7 +482,7 @@ public class MainWindow : Window
                 _currentMessageLimit
             ));
 
-            var totalCountTask = GetTotalMessageCountAsync(node, topicName, isDeadLetter);
+            var totalCountTask = GetTotalMessageCountAsync(node, effectiveType, topicName, isDeadLetter);
 
             await Task.WhenAll(messagesTask, totalCountTask);
 
@@ -658,11 +671,11 @@ public class MainWindow : Window
         }
     }
 
-    private async Task<long?> GetTotalMessageCountAsync(TreeNodeModel node, string? topicName, bool isDeadLetter)
+    private async Task<long?> GetTotalMessageCountAsync(TreeNodeModel node, TreeNodeType effectiveType, string? topicName, bool isDeadLetter)
     {
         try
         {
-            return node.NodeType switch
+            return effectiveType switch
             {
                 TreeNodeType.Queue when !isDeadLetter =>
                     await _connectionService.GetQueueMessageCountAsync(node.ConnectionName!, node.EntityPath!),
@@ -819,48 +832,54 @@ public class MainWindow : Window
         }
     }
 
-    private async Task ToggleFavoriteAsync()
+    private void ToggleFavorite()
     {
-        if (_currentNode is null ||
-            !_currentNode.CanPeekMessages ||
-            _currentNode.ConnectionName is null)
-        {
-            return;
-        }
+        var node = _treePanel.SelectedNode;
+        if (node is null) return;
 
-        var entityType = _currentNode.NodeType switch
-        {
-            TreeNodeType.Favorite => TreeNodeType.Queue,
-            _ => _currentNode.NodeType
-        };
+        // Only allow favoriting actual entities (not roots, connections, etc.)
+        if (!CanFavoriteNode(node)) return;
 
-        var favorite = new Favorite(
-            _currentNode.ConnectionName,
-            _currentNode.EntityPath!,
-            entityType,
-            _currentNode.ParentEntityPath
-        );
-
-        try
+        _ = Task.Run(async () =>
         {
-            if (_favoritesStore.IsFavorite(
-                _currentNode.ConnectionName,
-                _currentNode.EntityPath!,
-                _currentNode.ParentEntityPath))
+            try
             {
-                await _favoritesStore.RemoveAsync(favorite);
-                MessageBox.Query("Favorites", "Removed from favorites", "OK");
+                // For favorites, use SourceEntityType; otherwise use NodeType
+                var entityType = node.NodeType == TreeNodeType.Favorite
+                    ? node.SourceEntityType!.Value
+                    : node.NodeType;
+
+                var favorite = new Favorite(
+                    node.ConnectionName!,
+                    node.EntityPath!,
+                    entityType,
+                    node.ParentEntityPath
+                );
+
+                if (_favoritesStore.IsFavorite(node.ConnectionName!, node.EntityPath!, node.ParentEntityPath, entityType))
+                {
+                    await _favoritesStore.RemoveAsync(favorite);
+                }
+                else
+                {
+                    await _favoritesStore.AddAsync(favorite);
+                }
+
+                Application.Invoke(() => _treePanel.RefreshFavorites());
             }
-            else
+            catch (Exception ex)
             {
-                await _favoritesStore.AddAsync(favorite);
-                MessageBox.Query("Favorites", "Added to favorites", "OK");
+                Application.Invoke(() => ShowError("Failed to toggle favorite", ex));
             }
-        }
-        catch (Exception ex)
-        {
-            ShowError("Failed to update favorites", ex);
-        }
+        });
+    }
+
+    private static bool CanFavoriteNode(TreeNodeModel node)
+    {
+        // Allow toggling on actual entities or on favorites (to unfavorite)
+        return node.NodeType is TreeNodeType.Queue or TreeNodeType.QueueDeadLetter
+            or TreeNodeType.TopicSubscription or TreeNodeType.TopicSubscriptionDeadLetter
+            or TreeNodeType.Favorite;
     }
 
     private static void ShowError(string title, Exception ex)

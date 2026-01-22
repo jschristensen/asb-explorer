@@ -70,7 +70,7 @@ public class FavoritesStoreTests : IDisposable
         var favorite = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
         await _store.AddAsync(favorite);
 
-        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null);
+        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null, TreeNodeType.Queue);
 
         Assert.True(result);
     }
@@ -78,7 +78,7 @@ public class FavoritesStoreTests : IDisposable
     [Fact]
     public async Task IsFavorite_NonExistingFavorite_ReturnsFalse()
     {
-        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null);
+        var result = _store.IsFavorite("ns.servicebus.windows.net", "queue1", null, TreeNodeType.Queue);
 
         Assert.False(result);
     }
@@ -95,6 +95,62 @@ public class FavoritesStoreTests : IDisposable
 
         Assert.Single(store2.Favorites);
         Assert.Equal("queue1", store2.Favorites[0].EntityPath);
+    }
+
+    [Fact]
+    public async Task MoveUpAsync_FirstItem_DoesNothing()
+    {
+        var fav1 = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        var fav2 = new Favorite("ns.servicebus.windows.net", "queue2", TreeNodeType.Queue);
+        await _store.AddAsync(fav1);
+        await _store.AddAsync(fav2);
+
+        await _store.MoveUpAsync(fav1);
+
+        Assert.Equal("queue1", _store.Favorites[0].EntityPath);
+        Assert.Equal("queue2", _store.Favorites[1].EntityPath);
+    }
+
+    [Fact]
+    public async Task MoveUpAsync_SecondItem_SwapsWithFirst()
+    {
+        var fav1 = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        var fav2 = new Favorite("ns.servicebus.windows.net", "queue2", TreeNodeType.Queue);
+        await _store.AddAsync(fav1);
+        await _store.AddAsync(fav2);
+
+        await _store.MoveUpAsync(fav2);
+
+        Assert.Equal("queue2", _store.Favorites[0].EntityPath);
+        Assert.Equal("queue1", _store.Favorites[1].EntityPath);
+    }
+
+    [Fact]
+    public async Task MoveDownAsync_LastItem_DoesNothing()
+    {
+        var fav1 = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        var fav2 = new Favorite("ns.servicebus.windows.net", "queue2", TreeNodeType.Queue);
+        await _store.AddAsync(fav1);
+        await _store.AddAsync(fav2);
+
+        await _store.MoveDownAsync(fav2);
+
+        Assert.Equal("queue1", _store.Favorites[0].EntityPath);
+        Assert.Equal("queue2", _store.Favorites[1].EntityPath);
+    }
+
+    [Fact]
+    public async Task MoveDownAsync_FirstItem_SwapsWithSecond()
+    {
+        var fav1 = new Favorite("ns.servicebus.windows.net", "queue1", TreeNodeType.Queue);
+        var fav2 = new Favorite("ns.servicebus.windows.net", "queue2", TreeNodeType.Queue);
+        await _store.AddAsync(fav1);
+        await _store.AddAsync(fav2);
+
+        await _store.MoveDownAsync(fav1);
+
+        Assert.Equal("queue2", _store.Favorites[0].EntityPath);
+        Assert.Equal("queue1", _store.Favorites[1].EntityPath);
     }
 }
 

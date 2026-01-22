@@ -1,251 +1,153 @@
+# Text Selection Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Enable partial text selection and copy in both the edit dialog and detail view by refactoring to use Terminal.Gui's built-in `TextView`.
+
+**Architecture:** Replace custom `JsonEditorView` and `JsonBodyView` with `TextView`-based implementations. Apply JSON syntax highlighting via `DrawingText` event. Remove folding feature (simplifies implementation, selection becomes primary interaction).
+
+**Tech Stack:** Terminal.Gui v2, C# .NET
+
+---
+
+## Task 1: Refactor JsonEditorView to use TextView
+
+**Files:**
+- Modify: `src/AsbExplorer/Views/JsonEditorView.cs`
+
+**Step 1: Replace implementation with TextView wrapper**
+
+Replace the entire file content with:
+
+```csharp
 using Terminal.Gui;
-using AsbExplorer.Models;
-using AsbExplorer.Services;
 using AsbExplorer.Helpers;
 using AsbExplorer.Themes;
 using Attribute = Terminal.Gui.Attribute;
 
 namespace AsbExplorer.Views;
 
-public class MessageDetailView : FrameView
+/// <summary>
+/// A JSON editor with syntax highlighting and text selection support.
+/// Wraps Terminal.Gui's TextView for built-in selection capabilities.
+/// </summary>
+public class JsonEditorView : View
 {
-    private readonly TabView _tabView;
-    private readonly TableView _propertiesTable;
-    private readonly JsonBodyView _bodyContainer;
-    private readonly MessageFormatter _formatter;
-    private readonly DataTable _propsDataTable;
+    private readonly TextView _textView;
+    private Color _bgColor;
 
-    public MessageDetailView(MessageFormatter formatter, SettingsStore settingsStore)
+    public new event Action? TextChanged;
+
+    public new string Text
     {
-        Title = "Details";
+        get => _textView.Text;
+        set => _textView.Text = value ?? "";
+    }
+
+    public JsonEditorView()
+    {
         CanFocus = true;
-        TabStop = TabBehavior.TabGroup;
-        _formatter = formatter;
 
-        // CanFocus = false prevents TabView from stealing focus during data refresh
-        _tabView = new TabView
+        // Default to dark theme colors
+        _bgColor = new Color(0, 43, 54);
+
+        _textView = new TextView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            CanFocus = false
+            ReadOnly = false
         };
 
-        // Properties tab
-        _propsDataTable = new DataTable();
-        _propsDataTable.Columns.Add("Property", typeof(string));
-        _propsDataTable.Columns.Add("Value", typeof(string));
+        // Apply syntax highlighting before each draw
+        _textView.DrawingText += (s, e) => ApplyJsonHighlighting();
+        _textView.TextChanged += (s, e) => TextChanged?.Invoke();
 
-        _propertiesTable = new TableView
-        {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(),
-            Table = new DataTableSource(_propsDataTable),
-            FullRowSelect = true,
-            MultiSelect = false
-        };
-
-        // Value column expands to fill remaining space
-        _propertiesTable.Style.ExpandLastColumn = true;
-
-        // Double-click to show full property value in popup
-        _propertiesTable.CellActivated += OnCellActivated;
-
-        var propsTab = new Tab { DisplayText = "Properties", View = _propertiesTable };
-
-        // Body tab - custom view for colored/foldable content
-        _bodyContainer = new JsonBodyView(settingsStore)
-        {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(),
-            CanFocus = true
-        };
-
-        var bodyTab = new Tab { DisplayText = "Body", View = _bodyContainer };
-
-        _tabView.AddTab(propsTab, false);
-        _tabView.AddTab(bodyTab, true);
-
-        Add(_tabView);
-
-        // Forward focus to the selected tab's content (TabView itself is non-focusable)
-        HasFocusChanged += (s, e) =>
-        {
-            if (e.NewValue)
-            {
-                FocusSelectedTabContent();
-            }
-        };
+        Add(_textView);
     }
 
-    private void FocusSelectedTabContent()
+    public void SetThemeColors(bool isDark)
     {
-        var selectedTab = _tabView.SelectedTab;
-        if (selectedTab?.View != null && selectedTab.View.CanFocus)
+        _bgColor = isDark ? new Color(0, 43, 54) : new Color(253, 246, 227);
+
+        var fgColor = isDark ? new Color(131, 148, 150) : new Color(101, 123, 131);
+        _textView.ColorScheme = new ColorScheme
         {
-            selectedTab.View.SetFocus();
-        }
+            Normal = new Attribute(fgColor, _bgColor),
+            Focus = new Attribute(fgColor, _bgColor),
+            HotNormal = new Attribute(fgColor, _bgColor),
+            HotFocus = new Attribute(fgColor, _bgColor),
+            Disabled = new Attribute(fgColor, _bgColor)
+        };
+
+        SetNeedsDraw();
     }
 
-    public void SwitchToTab(int index)
+    private void ApplyJsonHighlighting()
     {
-        if (index >= 0 && index < _tabView.Tabs.Count())
+        for (var y = 0; y < _textView.Lines; y++)
         {
-            _tabView.SelectedTab = _tabView.Tabs.ElementAt(index);
-            FocusSelectedTabContent();
-        }
-    }
+            var line = _textView.GetLine(y);
+            var lineText = new string(line.Select(c => (char)c.Rune.Value).ToArray());
 
-    protected override bool OnKeyDown(Key key)
-    {
-        // P/B to switch tabs (no modifiers)
-        if (!key.IsCtrl && !key.IsAlt && !key.IsShift)
-        {
-            if (key.KeyCode == KeyCode.P)
+            var spans = JsonSyntaxHighlighter.Highlight(lineText);
+            var x = 0;
+
+            foreach (var span in spans)
             {
-                SwitchToTab(0);
-                return true;
-            }
-            if (key.KeyCode == KeyCode.B)
-            {
-                SwitchToTab(1);
-                return true;
+                var color = SolarizedTheme.JsonColors[span.TokenType];
+                foreach (var _ in span.Text)
+                {
+                    if (x < line.Count)
+                    {
+                        var cell = line[x];
+                        cell.Attribute = new Attribute(color, _bgColor);
+                        line[x] = cell;
+                    }
+                    x++;
+                }
             }
         }
-        return base.OnKeyDown(key);
-    }
-
-    public void SetMessage(PeekedMessage message)
-    {
-        // Properties
-        _propsDataTable.Rows.Clear();
-
-        _propsDataTable.Rows.Add("MessageId", message.MessageId);
-        _propsDataTable.Rows.Add("SequenceNumber", message.SequenceNumber.ToString());
-        _propsDataTable.Rows.Add("EnqueuedTime", message.EnqueuedTime.ToString("O"));
-        _propsDataTable.Rows.Add("Subject", message.Subject ?? "-");
-        _propsDataTable.Rows.Add("DeliveryCount", message.DeliveryCount.ToString());
-        _propsDataTable.Rows.Add("ContentType", message.ContentType ?? "-");
-        _propsDataTable.Rows.Add("CorrelationId", message.CorrelationId ?? "-");
-        _propsDataTable.Rows.Add("SessionId", message.SessionId ?? "-");
-        _propsDataTable.Rows.Add("TimeToLive", message.TimeToLive.ToString());
-
-        if (message.ScheduledEnqueueTime.HasValue)
-        {
-            _propsDataTable.Rows.Add("ScheduledEnqueueTime",
-                message.ScheduledEnqueueTime.Value.ToString("O"));
-        }
-
-        _propsDataTable.Rows.Add("BodySize", $"{message.BodySizeBytes} bytes");
-
-        // Add specific application properties if present
-        var appProps = message.ApplicationProperties;
-        if (appProps.TryGetValue("Distributor", out var distributor))
-            _propsDataTable.Rows.Add("[App] Distributor", distributor?.ToString() ?? "null");
-        if (appProps.TryGetValue("Client", out var client))
-            _propsDataTable.Rows.Add("[App] Client", client?.ToString() ?? "null");
-        if (appProps.TryGetValue("MessageTypeAssemblyQualifiedName", out var msgType))
-            _propsDataTable.Rows.Add("[App] MessageType", msgType?.ToString() ?? "null");
-
-        _propsDataTable.Rows.Add("", ""); // Separator
-
-        // Add remaining application properties
-        foreach (var prop in message.ApplicationProperties)
-        {
-            // Skip already-added properties
-            if (prop.Key is "Distributor" or "Client" or "MessageTypeAssemblyQualifiedName")
-                continue;
-            _propsDataTable.Rows.Add($"[App] {prop.Key}", prop.Value?.ToString() ?? "null");
-        }
-
-        // Calculate and set fixed column width based on property names
-        var propertyNames = _propsDataTable.Rows.Select(r => r.Values[0]?.ToString()!);
-        var propertyColumnWidth = DisplayHelpers.CalculatePropertyColumnWidth(propertyNames);
-
-        _propertiesTable.Style.ColumnStyles.Clear();
-        _propertiesTable.Style.ColumnStyles.Add(0, new ColumnStyle
-        {
-            MinWidth = propertyColumnWidth,
-            MaxWidth = propertyColumnWidth
-        });
-        _propertiesTable.Style.ColumnStyles.Add(1, new ColumnStyle
-        {
-            MinAcceptableWidth = 1
-        });
-
-        _propertiesTable.Table = new DataTableSource(_propsDataTable);
-
-        // Body
-        var (content, format) = _formatter.Format(message.Body, message.ContentType);
-        var rawContent = TryGetRawText(message.Body) ?? content;
-        _bodyContainer.SetContent(content, format, rawContent);
-    }
-
-    private static string? TryGetRawText(BinaryData body)
-    {
-        try
-        {
-            var bytes = body.ToArray();
-            var text = System.Text.Encoding.UTF8.GetString(bytes);
-            // Check for invalid UTF-8 sequences
-            if (text.Contains('\uFFFD'))
-                return null;
-            return text;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private void OnCellActivated(object? sender, CellActivatedEventArgs e)
-    {
-        if (e.Row < 0 || e.Row >= _propsDataTable.Rows.Count)
-            return;
-
-        var propertyName = _propsDataTable.Rows[e.Row].Values[0]?.ToString() ?? "";
-        var value = _propsDataTable.Rows[e.Row].Values[1]?.ToString() ?? "";
-
-        var textView = new TextView
-        {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(),
-            Text = $"{propertyName}\n\n{value}",
-            ReadOnly = true,
-            WordWrap = true
-        };
-
-        var dialog = new Dialog
-        {
-            Title = "Property Detail",
-            Width = Dim.Percent(60),
-            Height = Dim.Percent(60)
-        };
-
-        var closeButton = new Button { Text = "Close", IsDefault = true };
-        closeButton.Accepting += (s, e) => Application.RequestStop();
-
-        dialog.Add(textView);
-        dialog.AddButton(closeButton);
-
-        Application.Run(dialog);
-    }
-
-    public void Clear()
-    {
-        _propsDataTable.Rows.Clear();
-        _propertiesTable.Table = new DataTableSource(_propsDataTable);
-        _bodyContainer.Clear();
     }
 }
+```
 
+**Step 2: Build to verify compilation**
+
+Run: `dotnet build src/AsbExplorer/AsbExplorer.csproj`
+Expected: Build succeeds with no errors
+
+**Step 3: Run existing tests**
+
+Run: `dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj --verbosity quiet`
+Expected: All 134 tests pass
+
+**Step 4: Commit**
+
+```bash
+git add src/AsbExplorer/Views/JsonEditorView.cs
+git commit -m "refactor: use TextView in JsonEditorView for text selection
+
+Replace custom cursor/editing implementation with Terminal.Gui's
+built-in TextView. Maintains JSON syntax highlighting via DrawingText
+event. Enables click-drag and Shift+arrow selection.
+
+Part of #18"
+```
+
+---
+
+## Task 2: Refactor JsonBodyView to use TextView
+
+**Files:**
+- Modify: `src/AsbExplorer/Views/MessageDetailView.cs` (contains `JsonBodyView` class)
+
+**Step 1: Replace JsonBodyView implementation**
+
+Find the `JsonBodyView` class (starts at line 252) and replace it with:
+
+```csharp
 /// <summary>
 /// View for rendering message body content with syntax highlighting and text selection.
 /// Uses Terminal.Gui's TextView for built-in selection capabilities.
@@ -547,3 +449,112 @@ internal class JsonBodyView : View
         return base.OnKeyDown(key);
     }
 }
+```
+
+**Step 2: Remove FoldableJsonDocument import**
+
+At the top of `MessageDetailView.cs`, the `FoldableJsonDocument` is no longer used. The import is implicit (same namespace), so no change needed there.
+
+**Step 3: Build to verify compilation**
+
+Run: `dotnet build src/AsbExplorer/AsbExplorer.csproj`
+Expected: Build succeeds with no errors
+
+**Step 4: Run existing tests**
+
+Run: `dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj --verbosity quiet`
+Expected: All 134 tests pass
+
+**Step 5: Commit**
+
+```bash
+git add src/AsbExplorer/Views/MessageDetailView.cs
+git commit -m "refactor: use TextView in JsonBodyView for text selection
+
+Replace custom rendering with Terminal.Gui's built-in TextView.
+Maintains JSON syntax highlighting via DrawingText event.
+Removes folding feature (selection is now primary interaction).
+Ctrl+C copies selected text or full doc if no selection.
+
+Part of #18"
+```
+
+---
+
+## Task 3: Delete FoldableJsonDocument
+
+**Files:**
+- Delete: `src/AsbExplorer/Helpers/FoldableJsonDocument.cs`
+
+**Step 1: Delete the file**
+
+Run: `rm src/AsbExplorer/Helpers/FoldableJsonDocument.cs`
+
+**Step 2: Build to verify no remaining references**
+
+Run: `dotnet build src/AsbExplorer/AsbExplorer.csproj`
+Expected: Build succeeds (no references to deleted file)
+
+**Step 3: Run tests**
+
+Run: `dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj --verbosity quiet`
+Expected: All tests pass
+
+**Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "chore: remove FoldableJsonDocument (no longer used)
+
+Folding feature removed in favor of text selection.
+
+Part of #18"
+```
+
+---
+
+## Task 4: Manual Testing Checklist
+
+**Step 1: Test Edit Dialog (JsonEditorView)**
+
+Run the app and open a dead letter queue message for editing:
+- [ ] JSON syntax highlighting renders correctly
+- [ ] Click to position cursor works
+- [ ] Click-drag to select text works
+- [ ] Shift+arrow keys extend selection
+- [ ] Ctrl+C copies selected text
+- [ ] Typing inserts text at cursor
+- [ ] Backspace/Delete work correctly
+
+**Step 2: Test Detail View (JsonBodyView)**
+
+Select a message to view its details:
+- [ ] Body tab shows JSON with syntax highlighting
+- [ ] Click-drag to select text works
+- [ ] Shift+arrow keys extend selection
+- [ ] Ctrl+C copies selected text (or all if no selection)
+- [ ] [Copy] button copies selected text (or all if no selection)
+- [ ] Format selector switches between TEXT/JSON/XML
+- [ ] Scrolling works with arrow keys and mouse wheel
+
+**Step 3: Commit test results**
+
+If all manual tests pass, no code changes needed. If fixes required, address them before final commit.
+
+---
+
+## Task 5: Final Commit and PR Prep
+
+**Step 1: Verify all tests pass**
+
+Run: `dotnet test src/AsbExplorer.Tests/AsbExplorer.Tests.csproj --verbosity quiet`
+Expected: All tests pass
+
+**Step 2: Review changes**
+
+Run: `git log --oneline feature/text-selection ^main`
+Expected: 3 commits (JsonEditorView, JsonBodyView, delete FoldableJsonDocument)
+
+**Step 3: Ready for PR**
+
+The feature branch is ready for review and merge. Use `superpowers:finishing-a-development-branch` to complete.

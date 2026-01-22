@@ -41,8 +41,12 @@ public static class TreeNodeDisplayFormatter
 
         }
 
-        // DLQ-only nodes show single count
-        if (node.NodeType is TreeNodeType.QueueDeadLetter or TreeNodeType.TopicSubscriptionDeadLetter)
+        // DLQ-only nodes show single count (including DLQ favorites)
+        var isDlqNode = node.NodeType is TreeNodeType.QueueDeadLetter or TreeNodeType.TopicSubscriptionDeadLetter
+            || (node.NodeType == TreeNodeType.Favorite &&
+                node.SourceEntityType is TreeNodeType.QueueDeadLetter or TreeNodeType.TopicSubscriptionDeadLetter);
+
+        if (isDlqNode)
         {
             if (node.MessageCount.HasValue)
             {

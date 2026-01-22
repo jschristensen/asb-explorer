@@ -9,9 +9,14 @@ public record TreeNodeModel(
     string? ParentEntityPath = null,
     long? MessageCount = null,
     long? DlqMessageCount = null,
-    bool IsLoadingCount = false
+    bool IsLoadingCount = false,
+    TreeNodeType? SourceEntityType = null  // Original entity type for favorites
 )
 {
+    // Use Id-based equality so TreeView's IndexOf works correctly after count updates
+    public virtual bool Equals(TreeNodeModel? other) => other is not null && Id == other.Id;
+    public override int GetHashCode() => Id.GetHashCode();
+
     public bool CanHaveChildren => NodeType is
         TreeNodeType.FavoritesRoot or
         TreeNodeType.ConnectionsRoot or
