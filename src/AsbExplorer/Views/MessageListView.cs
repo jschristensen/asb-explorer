@@ -538,12 +538,19 @@ public class MessageListView : FrameView
 
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
     {
-        // Prune stale selections (keep only sequence numbers that exist in new messages)
-        var newSeqs = messages.Select(m => m.SequenceNumber).ToHashSet();
-        _selectedSequenceNumbers.IntersectWith(newSeqs);
+        _allMessages = messages;
+
+        // Apply filter if active
+        var displayMessages = _filterState.HasFilter
+            ? MessageFilter.Apply(messages, _filterState.SearchTerm)
+            : messages;
+
+        // Prune stale selections (keep only sequence numbers that exist in displayed messages)
+        var displayedSeqs = displayMessages.Select(m => m.SequenceNumber).ToHashSet();
+        _selectedSequenceNumbers.IntersectWith(displayedSeqs);
         UpdateRequeueButtonVisibility();
 
-        _messages = messages;
+        _messages = displayMessages;
         _dataTable.Rows.Clear();
         _dataTable.Columns.Clear();
 
