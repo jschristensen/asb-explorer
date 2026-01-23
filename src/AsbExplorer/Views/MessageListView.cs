@@ -141,26 +141,7 @@ public class MessageListView : FrameView
             AutoRefreshToggled?.Invoke(e.NewValue == CheckState.Checked);
         };
 
-        _requeueButton = new Button
-        {
-            Text = "Requeue Selected",
-            X = 0,
-            Y = 0,
-            Visible = false
-        };
-
-        _requeueButton.Accepting += (s, e) => RequeueSelectedRequested?.Invoke();
-
-        _clearAllButton = new Button
-        {
-            Text = "Clear Selection",
-            X = Pos.Right(_requeueButton) + 1,
-            Y = 0,
-            Visible = false
-        };
-
-        _clearAllButton.Accepting += (s, e) => ClearSelection();
-
+        // Export button - leftmost
         _exportButton = new Button
         {
             Text = "Export",
@@ -168,8 +149,27 @@ public class MessageListView : FrameView
             Y = 0,
             Visible = false
         };
-
         _exportButton.Accepting += (s, e) => ExportRequested?.Invoke();
+
+        // Requeue button - after Export
+        _requeueButton = new Button
+        {
+            Text = "Requeue Selected",
+            X = Pos.Right(_exportButton) + 1,
+            Y = 0,
+            Visible = false
+        };
+        _requeueButton.Accepting += (s, e) => RequeueSelectedRequested?.Invoke();
+
+        // Clear Selection button - after Requeue
+        _clearAllButton = new Button
+        {
+            Text = "Clear Selection",
+            X = Pos.Right(_requeueButton) + 1,
+            Y = 0,
+            Visible = false
+        };
+        _clearAllButton.Accepting += (s, e) => ClearSelection();
 
         _dataTable = new DataTable();
 
@@ -750,11 +750,39 @@ public class MessageListView : FrameView
         {
             _requeueButton.Text = $"Requeue {selectedCount} Selected";
         }
+
+        UpdateButtonPositions();
     }
 
     private void UpdateExportButtonVisibility()
     {
         _exportButton.Visible = _messages.Count > 0;
+        UpdateButtonPositions();
+    }
+
+    private void UpdateButtonPositions()
+    {
+        if (_exportButton.Visible)
+        {
+            _requeueButton.X = Pos.Right(_exportButton) + 1;
+        }
+        else
+        {
+            _requeueButton.X = 0;
+        }
+
+        if (_requeueButton.Visible)
+        {
+            _clearAllButton.X = Pos.Right(_requeueButton) + 1;
+        }
+        else if (_exportButton.Visible)
+        {
+            _clearAllButton.X = Pos.Right(_exportButton) + 1;
+        }
+        else
+        {
+            _clearAllButton.X = 0;
+        }
     }
 
     public void SetMessages(IReadOnlyList<PeekedMessage> messages)
