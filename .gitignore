@@ -12,6 +12,9 @@ obj/
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+
 # Publish output
 publish/
 publish-test/
