@@ -21,6 +21,7 @@ public class MainWindow : Window
     private readonly SettingsStore _settingsStore;
     private readonly ColumnConfigService _columnConfigService;
     private readonly ApplicationPropertyScanner _propertyScanner;
+    private readonly MessageExportService _exportService;
     private readonly StatusBar _statusBar;
     private readonly Shortcut _themeShortcut;
     private readonly Shortcut _refreshShortcut;
@@ -50,7 +51,8 @@ public class MainWindow : Window
         SettingsStore settingsStore,
         MessageFormatter formatter,
         ColumnConfigService columnConfigService,
-        ApplicationPropertyScanner propertyScanner)
+        ApplicationPropertyScanner propertyScanner,
+        MessageExportService exportService)
     {
         Title = $"Azure Service Bus Explorer ({Application.QuitKey} to quit)";
         _peekService = peekService;
@@ -62,6 +64,7 @@ public class MainWindow : Window
         _settingsStore = settingsStore;
         _columnConfigService = columnConfigService;
         _propertyScanner = propertyScanner;
+        _exportService = exportService;
 
         X = 0;
         Y = 0;
@@ -142,7 +145,9 @@ public class MainWindow : Window
         _messageList.MessageSelected += OnMessageSelected;
         _messageList.EditMessageRequested += OnEditMessageRequested;
         _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
+        _messageList.DeleteSelectedRequested += OnDeleteSelectedRequested;
         _messageList.LimitChanged += OnMessageLimitChanged;
+        _messageList.ExportRequested += OnExportRequested;
 
         // Initialize auto-refresh states from settings
         _treePanel.SetAutoRefreshChecked(_settingsStore.Settings.AutoRefreshTreeCounts);
@@ -662,6 +667,49 @@ public class MainWindow : Window
         }
     }
 
+    private void OnDeleteSelectedRequested()
+    {
+        if (_currentNode is null || _currentNode.ConnectionName is null)
+        {
+            return;
+        }
+
+        var selectedMessages = _messageList.GetSelectedMessages();
+        if (selectedMessages.Count == 0)
+        {
+            return;
+        }
+
+        var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
+        var topicName = isSubscription ? _currentNode.ParentEntityPath : null;
+        var connectionName = _currentNode.ConnectionName;
+        var entityPath = _currentNode.EntityPath!;
+
+        _isModalOpen = true;
+        var dialog = new DeleteProgressDialog(
+            selectedMessages.Count,
+            async (removeOriginals, onProgress) =>
+            {
+                return await _requeueService.DeleteMessagesAsync(
+                    connectionName,
+                    entityPath,
+                    topicName,
+                    selectedMessages,
+                    onProgress);
+            });
+
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Confirmed)
+        {
+            // Clear selection and refresh
+            _messageList.ClearSelection();
+            RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
+        }
+    }
+
     private void OnMessageLimitChanged(int limit)
     {
         _currentMessageLimit = limit;
@@ -669,6 +717,164 @@ public class MainWindow : Window
         {
             OnNodeSelected(_currentNode);
         }
+    }
+
+    private async void OnExportRequested()
+    {
+        var allMessages = _messageList.GetAllMessages();
+        var selectedMessages = _messageList.GetSelectedMessages();
+
+        if (allMessages.Count == 0)
+        {
+            MessageBox.ErrorQuery("Error", "No messages to export.", "OK");
+            return;
+        }
+
+        // Build column list: core columns + all application properties from messages
+        var columns = _columnConfigService.GetDefaultColumns();
+
+        // Collect all unique application property names from all messages
+        var appPropNames = allMessages
+            .SelectMany(m => m.ApplicationProperties.Keys)
+            .Distinct()
+            .OrderBy(k => k)
+            .ToList();
+
+        // Add application properties as columns
+        foreach (var propName in appPropNames)
+        {
+            if (!columns.Any(c => c.Name == propName))
+            {
+                columns.Add(new ColumnConfig(propName, Visible: true, IsApplicationProperty: true));
+            }
+        }
+
+        _isModalOpen = true;
+        var dialog = new ExportDialog(allMessages.Count, selectedMessages.Count, columns);
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Result is null)
+        {
+            return;
+        }
+
+        var messagesToExport = dialog.Result.ExportAll
+            ? allMessages
+            : selectedMessages;
+
+        // Get or prompt for export directory
+        var exportDir = _settingsStore.Settings.ExportDirectory;
+        if (string.IsNullOrEmpty(exportDir))
+        {
+            exportDir = PromptForExportDirectory();
+            if (exportDir == null)
+            {
+                return;
+            }
+            await _settingsStore.SetExportDirectoryAsync(exportDir);
+        }
+
+        // Generate filename: {entity-name}-{timestamp}.db
+        var entityName = SanitizeFilename(_currentNode?.EntityPath ?? "messages");
+        var timestamp = DateTime.Now.ToString("yyyy-MM-ddTHHmmss");
+        var filename = $"{entityName}-{timestamp}.db";
+        var filePath = Path.Combine(exportDir, filename);
+
+        try
+        {
+            await _exportService.ExportAsync(
+                messagesToExport,
+                dialog.Result.SelectedColumns,
+                filePath);
+
+            MessageBox.Query("Export Complete", $"Exported {messagesToExport.Count} messages to:\n{filePath}", "OK");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.ErrorQuery("Export Failed", $"Failed to export: {ex.Message}", "OK");
+        }
+    }
+
+    private static string? PromptForExportDirectory()
+    {
+        // Default to current working directory
+        var defaultDir = Environment.CurrentDirectory;
+        string? result = null;
+
+        var inputDialog = new Dialog
+        {
+            Title = "Export Directory",
+            Width = 60,
+            Height = 8
+        };
+
+        var label = new Label
+        {
+            Text = "Enter export directory path:",
+            X = 1,
+            Y = 1
+        };
+
+        var textField = new TextField
+        {
+            Text = defaultDir,
+            X = 1,
+            Y = 2,
+            Width = Dim.Fill(1)
+        };
+
+        var okButton = new Button
+        {
+            Text = "OK",
+            X = Pos.Center() - 8,
+            Y = 4,
+            IsDefault = true
+        };
+        okButton.Accepting += (s, e) =>
+        {
+            var path = textField.Text?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                MessageBox.ErrorQuery("Error", "Please enter a directory path.", "OK");
+                return;
+            }
+            if (!Directory.Exists(path))
+            {
+                MessageBox.ErrorQuery("Error", $"Directory does not exist:\n{path}", "OK");
+                return;
+            }
+            result = path;
+            Application.RequestStop();
+        };
+
+        var cancelButton = new Button
+        {
+            Text = "Cancel",
+            X = Pos.Center() + 4,
+            Y = 4
+        };
+        cancelButton.Accepting += (s, e) => Application.RequestStop();
+
+        inputDialog.Add(label, textField, okButton, cancelButton);
+        inputDialog.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == KeyCode.Esc)
+            {
+                Application.RequestStop();
+                e.Handled = true;
+            }
+        };
+
+        Application.Run(inputDialog);
+        return result;
+    }
+
+    private static string SanitizeFilename(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '-' : c).ToArray());
+        return sanitized.ToLowerInvariant();
     }
 
     private async Task<long?> GetTotalMessageCountAsync(TreeNodeModel node, TreeNodeType effectiveType, string? topicName, bool isDeadLetter)

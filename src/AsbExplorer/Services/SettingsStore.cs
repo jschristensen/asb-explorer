@@ -87,6 +87,12 @@ public class SettingsStore
         await SaveAsync();
     }
 
+    public async Task SetExportDirectoryAsync(string? directory)
+    {
+        Settings.ExportDirectory = directory;
+        await SaveAsync();
+    }
+
     private async Task SaveAsync()
     {
         var json = JsonSerializer.Serialize(Settings, AppJsonContext.Default.AppSettings);

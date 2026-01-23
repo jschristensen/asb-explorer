@@ -14,6 +14,8 @@ public class MessageListView : FrameView
     private IReadOnlyList<PeekedMessage> _messages = [];
     private readonly Button _requeueButton;
     private readonly Button _clearAllButton;
+    private readonly Button _exportButton;
+    private readonly Button _deleteButton;
     private bool _isDeadLetterMode;
     private readonly HashSet<long> _selectedSequenceNumbers = [];
     private string? _currentEntityName;
@@ -36,6 +38,8 @@ public class MessageListView : FrameView
     public event Action<PeekedMessage>? EditMessageRequested;
     public event Action? RequeueSelectedRequested;
     public event Action<int>? LimitChanged;
+    public event Action? ExportRequested;
+    public event Action? DeleteSelectedRequested;
 
     public int CurrentLimit => LimitOptions[_currentLimitIndex];
 
@@ -139,16 +143,27 @@ public class MessageListView : FrameView
             AutoRefreshToggled?.Invoke(e.NewValue == CheckState.Checked);
         };
 
-        _requeueButton = new Button
+        // Export button - leftmost
+        _exportButton = new Button
         {
-            Text = "Requeue Selected",
+            Text = "Export",
             X = 0,
             Y = 0,
             Visible = false
         };
+        _exportButton.Accepting += (s, e) => ExportRequested?.Invoke();
 
+        // Requeue button - after Export
+        _requeueButton = new Button
+        {
+            Text = "Requeue Selected",
+            X = Pos.Right(_exportButton) + 1,
+            Y = 0,
+            Visible = false
+        };
         _requeueButton.Accepting += (s, e) => RequeueSelectedRequested?.Invoke();
 
+        // Clear Selection button - after Requeue
         _clearAllButton = new Button
         {
             Text = "Clear Selection",
@@ -156,8 +171,17 @@ public class MessageListView : FrameView
             Y = 0,
             Visible = false
         };
-
         _clearAllButton.Accepting += (s, e) => ClearSelection();
+
+        // Delete button - after Clear Selection
+        _deleteButton = new Button
+        {
+            Text = "Delete",
+            X = Pos.Right(_clearAllButton) + 1,
+            Y = 0,
+            Visible = false
+        };
+        _deleteButton.Accepting += (s, e) => DeleteSelectedRequested?.Invoke();
 
         _dataTable = new DataTable();
 
@@ -208,8 +232,23 @@ public class MessageListView : FrameView
             }
         };
 
+        // Intercept keys on TableView before it processes them (for filter mode)
+        _tableView.KeyDown += (s, e) =>
+        {
+            if (_filterState.IsInputActive && e.KeyCode == KeyCode.Enter)
+            {
+                // Exit filter input mode - consume the key before TableView triggers CellActivated
+                ApplyFilter(_filterState.SearchTerm, false);
+                e.Handled = true;
+            }
+        };
+
         _tableView.CellActivated += (s, e) =>
         {
+            // Don't activate while in filter input mode (Enter should just confirm the filter)
+            if (_filterState.IsInputActive)
+                return;
+
             if (e.Row >= 0 && e.Row < _messages.Count)
             {
                 if (_isDeadLetterMode)
@@ -280,7 +319,7 @@ public class MessageListView : FrameView
             }
         };
 
-        Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _requeueButton, _clearAllButton, _tableView);
+        Add(_messageCountLabel, _limitButton, _autoRefreshCheckbox, _countdownLabel, _exportButton, _requeueButton, _clearAllButton, _deleteButton, _tableView);
     }
 
     private void ShowLimitDialog()
@@ -590,12 +629,14 @@ public class MessageListView : FrameView
                 }
             }
 
-            return true; // Consume all keys in input mode
+            // Only consume unmodified keys - let Ctrl/Alt combos bubble up for hotkeys
+            return !key.IsCtrl && !key.IsAlt;
         }
 
         // "/" to enter filter mode
         if (key.KeyCode == (KeyCode)'/')
         {
+            _tableView.SetFocus();  // Ensure table has focus so our KeyDown handler catches Enter
             ApplyFilter(_filterState.SearchTerm, true);
             return true;
         }
@@ -638,6 +679,13 @@ public class MessageListView : FrameView
             _tableView.SelectedColumn >= _tableView.Table.Columns - 1)
         {
             return true; // Consume the event - already at rightmost column
+        }
+
+        // Delete key - delete selected messages (DLQ mode only)
+        if (_isDeadLetterMode && key.KeyCode == KeyCode.Delete && _selectedSequenceNumbers.Count > 0)
+        {
+            DeleteSelectedRequested?.Invoke();
+            return true;
         }
 
         if (!_isDeadLetterMode)
@@ -708,6 +756,13 @@ public class MessageListView : FrameView
             .ToList();
     }
 
+    public IReadOnlyList<PeekedMessage> GetAllMessages() => _messages;
+
+    public List<ColumnConfig> GetCurrentColumns()
+    {
+        return _currentColumnSettings?.Columns ?? _columnConfigService.GetDefaultColumns();
+    }
+
     public void ClearSelection()
     {
         _selectedSequenceNumbers.Clear();
@@ -726,10 +781,61 @@ public class MessageListView : FrameView
         var hasSelection = selectedCount > 0;
         _requeueButton.Visible = _isDeadLetterMode && hasSelection;
         _clearAllButton.Visible = _isDeadLetterMode && hasSelection;
+        _deleteButton.Visible = _isDeadLetterMode && hasSelection;
 
         if (_requeueButton.Visible)
         {
             _requeueButton.Text = $"Requeue {selectedCount} Selected";
+        }
+
+        UpdateButtonPositions();
+    }
+
+    private void UpdateExportButtonVisibility()
+    {
+        _exportButton.Visible = _messages.Count > 0;
+        UpdateButtonPositions();
+    }
+
+    private void UpdateButtonPositions()
+    {
+        if (_exportButton.Visible)
+        {
+            _requeueButton.X = Pos.Right(_exportButton) + 1;
+        }
+        else
+        {
+            _requeueButton.X = 0;
+        }
+
+        if (_requeueButton.Visible)
+        {
+            _clearAllButton.X = Pos.Right(_requeueButton) + 1;
+        }
+        else if (_exportButton.Visible)
+        {
+            _clearAllButton.X = Pos.Right(_exportButton) + 1;
+        }
+        else
+        {
+            _clearAllButton.X = 0;
+        }
+
+        if (_clearAllButton.Visible)
+        {
+            _deleteButton.X = Pos.Right(_clearAllButton) + 1;
+        }
+        else if (_requeueButton.Visible)
+        {
+            _deleteButton.X = Pos.Right(_requeueButton) + 1;
+        }
+        else if (_exportButton.Visible)
+        {
+            _deleteButton.X = Pos.Right(_exportButton) + 1;
+        }
+        else
+        {
+            _deleteButton.X = 0;
         }
     }
 
@@ -750,15 +856,14 @@ public class MessageListView : FrameView
         _messages = displayMessages;
         RebuildTable();
         UpdateTitle();
+        UpdateExportButtonVisibility();
     }
 
-    private static string GetColumnHeader(string columnName) => columnName switch
+    private static string GetColumnHeader(string columnName)
     {
-        "SequenceNumber" => "#",
-        "DeliveryCount" => "Delivery",
-        "ScheduledEnqueue" => "Scheduled",
-        _ => columnName
-    };
+        var def = CoreColumnRegistry.Get(columnName);
+        return def?.Header ?? columnName;
+    }
 
     private static string GetColumnValue(PeekedMessage msg, ColumnConfig col)
     {
@@ -769,38 +874,19 @@ public class MessageListView : FrameView
                 : "-";
         }
 
-        return col.Name switch
-        {
-            "SequenceNumber" => msg.SequenceNumber.ToString(),
-            "MessageId" => DisplayHelpers.TruncateId(msg.MessageId, 12),
-            "Enqueued" => DisplayHelpers.FormatRelativeTime(msg.EnqueuedTime),
-            "Subject" => msg.Subject ?? "-",
-            "Size" => DisplayHelpers.FormatSize(msg.BodySizeBytes),
-            "DeliveryCount" => msg.DeliveryCount.ToString(),
-            "ContentType" => msg.ContentType ?? "-",
-            "CorrelationId" => msg.CorrelationId ?? "-",
-            "SessionId" => msg.SessionId ?? "-",
-            "TimeToLive" => DisplayHelpers.FormatTimeSpan(msg.TimeToLive),
-            "ScheduledEnqueue" => DisplayHelpers.FormatScheduledTime(msg.ScheduledEnqueueTime),
-            _ => "-"
-        };
+        return CoreColumnValueExtractor.GetDisplayValue(msg, col.Name);
     }
 
-    private static ColumnStyle GetColumnStyle(string columnName) => columnName switch
+    private static ColumnStyle GetColumnStyle(string columnName)
     {
-        "SequenceNumber" => new ColumnStyle { MinWidth = 3, MaxWidth = 12 },
-        "MessageId" => new ColumnStyle { MinWidth = 12, MaxWidth = 14 },
-        "Enqueued" => new ColumnStyle { MinWidth = 10, MaxWidth = 12 },
-        "Subject" => new ColumnStyle { MinWidth = 10, MaxWidth = 30 },
-        "Size" => new ColumnStyle { MinWidth = 6, MaxWidth = 8 },
-        "DeliveryCount" => new ColumnStyle { MinWidth = 3, MaxWidth = 8 },
-        "ContentType" => new ColumnStyle { MinWidth = 8, MaxWidth = 20 },
-        "CorrelationId" => new ColumnStyle { MinWidth = 10, MaxWidth = 14 },
-        "SessionId" => new ColumnStyle { MinWidth = 8, MaxWidth = 14 },
-        "TimeToLive" => new ColumnStyle { MinWidth = 6, MaxWidth = 10 },
-        "ScheduledEnqueue" => new ColumnStyle { MinWidth = 8, MaxWidth = 12 },
-        _ => new ColumnStyle { MinWidth = 8, MaxWidth = 20 } // Application properties
-    };
+        var def = CoreColumnRegistry.Get(columnName);
+        if (def != null)
+        {
+            return new ColumnStyle { MinWidth = def.MinWidth, MaxWidth = def.MaxWidth };
+        }
+        // Application properties
+        return new ColumnStyle { MinWidth = 8, MaxWidth = 20 };
+    }
 
     public void Clear()
     {
@@ -810,6 +896,7 @@ public class MessageListView : FrameView
         _tableView.Table = new DataTableSource(_dataTable);
         _totalMessageCount = null;
         UpdateRequeueButtonVisibility();
+        UpdateExportButtonVisibility();
         UpdateMessageCountLabel();
     }
 

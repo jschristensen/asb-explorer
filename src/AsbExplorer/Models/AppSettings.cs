@@ -7,4 +7,5 @@ public class AppSettings
     public bool AutoRefreshMessageList { get; set; } = false;
     public int AutoRefreshIntervalSeconds { get; set; } = 10;
     public Dictionary<string, EntityColumnSettings> EntityColumns { get; set; } = [];
+    public string? ExportDirectory { get; set; }
 }

@@ -49,4 +49,15 @@ public interface IMessageRequeueService
         IReadOnlyList<PeekedMessage> messages,
         bool removeOriginals,
         Action<int, int>? onProgress = null);
+
+    /// <summary>
+    /// Delete multiple messages from DLQ.
+    /// </summary>
+    Task<BulkRequeueResult> DeleteMessagesAsync(
+        string connectionName,
+        string entityPath,
+        string? topicName,
+        IReadOnlyList<PeekedMessage> messages,
+        Action<int, int>? onProgress = null,
+        CancellationToken cancellationToken = default);
 }
