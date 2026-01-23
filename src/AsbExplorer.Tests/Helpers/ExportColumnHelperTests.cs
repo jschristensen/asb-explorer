@@ -18,14 +18,13 @@ public class ExportColumnHelperTests
     }
 
     [Fact]
-    public void NormalizePropertyName_VeryLongName_TruncatesTo63Chars()
+    public void NormalizePropertyName_VeryLongName_PreservesFullLength()
     {
         var longName = new string('a', 100);
 
         var result = ExportColumnHelper.NormalizePropertyName(longName);
 
-        Assert.Equal(63, result.Length);
-        Assert.StartsWith("prop_", result);
+        Assert.Equal("prop_" + longName, result);
     }
 
     [Theory]

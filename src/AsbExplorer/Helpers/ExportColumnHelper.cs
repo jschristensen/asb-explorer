@@ -38,14 +38,7 @@ public static partial class ExportColumnHelper
         // Trim leading/trailing underscores
         normalized = normalized.Trim('_');
 
-        // Add prefix and truncate (SQLite max identifier length is 128, but 63 is practical)
-        var result = $"prop_{normalized}";
-        if (result.Length > 63)
-        {
-            result = result[..63];
-        }
-
-        return result;
+        return $"prop_{normalized}";
     }
 
     [GeneratedRegex(@"[^a-zA-Z0-9]+")]
