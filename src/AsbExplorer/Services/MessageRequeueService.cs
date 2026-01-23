@@ -83,7 +83,7 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
 
         // Phase 2: Batch complete originals from DLQ (single receiver, find all matches)
         var sequenceNumbers = messages.Select(m => m.SequenceNumber).ToHashSet();
-        await BatchCompleteFromDlqAsync(connectionName, entityPath, topicName, sequenceNumbers, onProgress);
+        await BatchCompleteFromDlqAsync(connectionName, entityPath, topicName, sequenceNumbers, treatNotFoundAsSuccess: false, onProgress);
 
         // Complete failures are partial success - messages were sent, just not removed from DLQ
         onProgress?.Invoke(messages.Count, messages.Count);
@@ -102,7 +102,11 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
             return new BulkRequeueResult(0, 0, []);
 
         var sequenceNumbers = messages.Select(m => m.SequenceNumber).ToHashSet();
-        var result = await BatchCompleteFromDlqAsync(connectionName, entityPath, topicName, sequenceNumbers, onProgress, cancellationToken);
+
+        // For delete: treat "not found" as success (message is already gone = goal achieved)
+        var result = await BatchCompleteFromDlqAsync(
+            connectionName, entityPath, topicName, sequenceNumbers,
+            treatNotFoundAsSuccess: true, onProgress, cancellationToken);
 
         return result;
     }
@@ -112,6 +116,7 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         string entityPath,
         string? topicName,
         HashSet<long> sequenceNumbers,
+        bool treatNotFoundAsSuccess,
         Action<int, int>? onProgress = null,
         CancellationToken cancellationToken = default)
     {

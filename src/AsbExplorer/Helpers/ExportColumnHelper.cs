@@ -1,30 +1,14 @@
-using System.Text;
 using System.Text.RegularExpressions;
+using AsbExplorer.Models;
 
 namespace AsbExplorer.Helpers;
 
 public static partial class ExportColumnHelper
 {
-    private static readonly Dictionary<string, string> CoreColumnMapping = new()
-    {
-        ["SequenceNumber"] = "sequence_number",
-        ["MessageId"] = "message_id",
-        ["Enqueued"] = "enqueued_time",
-        ["Subject"] = "subject",
-        ["Size"] = "body_size_bytes",
-        ["DeliveryCount"] = "delivery_count",
-        ["ContentType"] = "content_type",
-        ["CorrelationId"] = "correlation_id",
-        ["SessionId"] = "session_id",
-        ["TimeToLive"] = "time_to_live_seconds",
-        ["ScheduledEnqueue"] = "scheduled_enqueue_time"
-    };
-
     public static string GetSqlColumnName(string displayName)
     {
-        return CoreColumnMapping.TryGetValue(displayName, out var mapped)
-            ? mapped
-            : NormalizePropertyName(displayName);
+        var def = CoreColumnRegistry.Get(displayName);
+        return def?.SqlName ?? NormalizePropertyName(displayName);
     }
 
     public static string NormalizePropertyName(string propertyName)

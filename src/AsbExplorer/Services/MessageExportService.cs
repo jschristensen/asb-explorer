@@ -7,13 +7,6 @@ namespace AsbExplorer.Services;
 
 public class MessageExportService
 {
-    private static readonly HashSet<string> CoreColumns = new()
-    {
-        "SequenceNumber", "MessageId", "Enqueued", "Subject", "Size",
-        "DeliveryCount", "ContentType", "CorrelationId", "SessionId",
-        "TimeToLive", "ScheduledEnqueue"
-    };
-
     public async Task ExportAsync(
         IEnumerable<PeekedMessage> messages,
         IEnumerable<string> selectedColumns,
@@ -23,8 +16,8 @@ public class MessageExportService
         var columns = selectedColumns.ToList();
 
         // Separate core columns from application properties
-        var coreColumnsToInclude = columns.Where(c => CoreColumns.Contains(c)).ToList();
-        var appPropsToInclude = columns.Where(c => !CoreColumns.Contains(c)).ToList();
+        var coreColumnsToInclude = columns.Where(CoreColumnRegistry.IsCore).ToList();
+        var appPropsToInclude = columns.Where(c => !CoreColumnRegistry.IsCore(c)).ToList();
 
         await using var connection = new SqliteConnection($"Data Source={filePath}");
         await connection.OpenAsync();
@@ -65,10 +58,9 @@ public class MessageExportService
 
         foreach (var col in coreColumns)
         {
-            var sqlName = ExportColumnHelper.GetSqlColumnName(col);
-            var sqlType = GetSqlType(col);
+            var def = CoreColumnRegistry.Get(col)!;
             var constraint = col == "SequenceNumber" ? " PRIMARY KEY" : "";
-            columnDefs.Add($"    {sqlName} {sqlType}{constraint}");
+            columnDefs.Add($"    {def.SqlName} {def.SqlType}{constraint}");
         }
 
         // Body columns are always included
@@ -87,22 +79,13 @@ public class MessageExportService
         return sb.ToString();
     }
 
-    private static string GetSqlType(string column) => column switch
-    {
-        "SequenceNumber" => "INTEGER",
-        "DeliveryCount" => "INTEGER",
-        "Size" => "INTEGER",
-        "TimeToLive" => "REAL",
-        _ => "TEXT"
-    };
-
     private static string BuildInsertSql(List<string> coreColumns, List<string> appProps)
     {
         var columnNames = new List<string>();
 
         foreach (var col in coreColumns)
         {
-            columnNames.Add(ExportColumnHelper.GetSqlColumnName(col));
+            columnNames.Add(CoreColumnRegistry.Get(col)!.SqlName);
         }
 
         columnNames.Add("body");
@@ -126,8 +109,8 @@ public class MessageExportService
     {
         foreach (var col in coreColumns)
         {
-            var sqlName = ExportColumnHelper.GetSqlColumnName(col);
-            var value = GetCoreColumnValue(msg, col);
+            var sqlName = CoreColumnRegistry.Get(col)!.SqlName;
+            var value = CoreColumnValueExtractor.GetExportValue(msg, col);
             cmd.Parameters.AddWithValue($"@{sqlName}", value ?? DBNull.Value);
         }
 
@@ -143,22 +126,6 @@ public class MessageExportService
             cmd.Parameters.AddWithValue($"@{sqlName}", (object?)value ?? DBNull.Value);
         }
     }
-
-    private static object? GetCoreColumnValue(PeekedMessage msg, string column) => column switch
-    {
-        "SequenceNumber" => msg.SequenceNumber,
-        "MessageId" => msg.MessageId,
-        "Enqueued" => msg.EnqueuedTime.ToString("o"),
-        "Subject" => msg.Subject,
-        "Size" => msg.BodySizeBytes,
-        "DeliveryCount" => msg.DeliveryCount,
-        "ContentType" => msg.ContentType,
-        "CorrelationId" => msg.CorrelationId,
-        "SessionId" => msg.SessionId,
-        "TimeToLive" => msg.TimeToLive.TotalSeconds,
-        "ScheduledEnqueue" => msg.ScheduledEnqueueTime?.ToString("o"),
-        _ => null
-    };
 
     private static (string Content, string Encoding) EncodeBody(BinaryData body)
     {
