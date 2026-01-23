@@ -145,6 +145,7 @@ public class MainWindow : Window
         _messageList.MessageSelected += OnMessageSelected;
         _messageList.EditMessageRequested += OnEditMessageRequested;
         _messageList.RequeueSelectedRequested += OnRequeueSelectedRequested;
+        _messageList.DeleteSelectedRequested += OnDeleteSelectedRequested;
         _messageList.LimitChanged += OnMessageLimitChanged;
         _messageList.ExportRequested += OnExportRequested;
 
@@ -651,6 +652,49 @@ public class MainWindow : Window
                     topicName,
                     selectedMessages,
                     removeOriginals,
+                    onProgress);
+            });
+
+        Application.Run(dialog);
+        _isModalOpen = false;
+
+        if (dialog.Confirmed)
+        {
+            // Clear selection and refresh
+            _messageList.ClearSelection();
+            RefreshCurrentNode();
+            _treePanel.RefreshAllCounts();
+        }
+    }
+
+    private void OnDeleteSelectedRequested()
+    {
+        if (_currentNode is null || _currentNode.ConnectionName is null)
+        {
+            return;
+        }
+
+        var selectedMessages = _messageList.GetSelectedMessages();
+        if (selectedMessages.Count == 0)
+        {
+            return;
+        }
+
+        var isSubscription = _currentNode.NodeType == TreeNodeType.TopicSubscriptionDeadLetter;
+        var topicName = isSubscription ? _currentNode.ParentEntityPath : null;
+        var connectionName = _currentNode.ConnectionName;
+        var entityPath = _currentNode.EntityPath!;
+
+        _isModalOpen = true;
+        var dialog = new DeleteProgressDialog(
+            selectedMessages.Count,
+            async (removeOriginals, onProgress) =>
+            {
+                return await _requeueService.DeleteMessagesAsync(
+                    connectionName,
+                    entityPath,
+                    topicName,
+                    selectedMessages,
                     onProgress);
             });
 
