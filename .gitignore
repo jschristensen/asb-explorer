@@ -12,6 +12,9 @@ obj/
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+
 # Publish output
 publish/
 publish-test/
@@ -29,3 +32,6 @@ local.settings.json
 *.pem
 *.pfx
 *.p12
+
+# SQLite databases
+*.db

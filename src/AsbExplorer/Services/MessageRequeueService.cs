@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Azure.Messaging.ServiceBus;
 using AsbExplorer.Models;
 
@@ -49,6 +50,8 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         return CompleteFromDlqAsync(connectionName, sequenceNumber, client => client.CreateReceiver(topicName, subscriptionName, DlqReceiverOptions));
     }
 
+    private const int MaxConcurrency = 10;
+
     public async Task<BulkRequeueResult> RequeueMessagesAsync(
         string connectionName,
         string entityPath,
@@ -57,43 +60,152 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
         bool removeOriginals,
         Action<int, int>? onProgress = null)
     {
-        var successCount = 0;
-        var failures = new List<(long SequenceNumber, string Error)>();
+        if (messages.Count == 0)
+            return new BulkRequeueResult(0, 0, []);
 
-        for (var i = 0; i < messages.Count; i++)
+        // Phase 1: Batch send all messages
+        onProgress?.Invoke(0, messages.Count);
+        var sendResult = await BatchSendMessagesAsync(connectionName, topicName ?? entityPath, messages);
+
+        if (!sendResult.Success)
         {
-            onProgress?.Invoke(i, messages.Count);
-            var message = messages[i];
-
-            var targetEntity = topicName ?? entityPath;
-            var sendResult = await SendToEntityAsync(connectionName, targetEntity, message);
-
-            if (!sendResult.Success)
-            {
-                failures.Add((message.SequenceNumber, sendResult.ErrorMessage ?? "Unknown error"));
-                continue;
-            }
-
-            if (removeOriginals)
-            {
-                var completeResult = topicName is not null
-                    ? await CompleteFromSubscriptionDlqAsync(connectionName, topicName, entityPath, message.SequenceNumber)
-                    : await CompleteFromQueueDlqAsync(connectionName, entityPath, message.SequenceNumber);
-
-                // Message was sent but not removed - partial success
-                // Still count as success since message was requeued
-                if (!completeResult.Success)
-                {
-                    successCount++;
-                    continue;
-                }
-            }
-
-            successCount++;
+            var failures = messages.Select(m => (m.SequenceNumber, sendResult.ErrorMessage ?? "Batch send failed")).ToList();
+            onProgress?.Invoke(messages.Count, messages.Count);
+            return new BulkRequeueResult(0, messages.Count, failures);
         }
 
+        // All messages sent successfully
+        if (!removeOriginals)
+        {
+            onProgress?.Invoke(messages.Count, messages.Count);
+            return new BulkRequeueResult(messages.Count, 0, []);
+        }
+
+        // Phase 2: Batch complete originals from DLQ (single receiver, find all matches)
+        var sequenceNumbers = messages.Select(m => m.SequenceNumber).ToHashSet();
+        await BatchCompleteFromDlqAsync(connectionName, entityPath, topicName, sequenceNumbers, treatNotFoundAsSuccess: false, onProgress);
+
+        // Complete failures are partial success - messages were sent, just not removed from DLQ
         onProgress?.Invoke(messages.Count, messages.Count);
-        return new BulkRequeueResult(successCount, failures.Count, failures);
+        return new BulkRequeueResult(messages.Count, 0, []);
+    }
+
+    public async Task<BulkRequeueResult> DeleteMessagesAsync(
+        string connectionName,
+        string entityPath,
+        string? topicName,
+        IReadOnlyList<PeekedMessage> messages,
+        Action<int, int>? onProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (messages.Count == 0)
+            return new BulkRequeueResult(0, 0, []);
+
+        var sequenceNumbers = messages.Select(m => m.SequenceNumber).ToHashSet();
+
+        // For delete: treat "not found" as success (message is already gone = goal achieved)
+        var result = await BatchCompleteFromDlqAsync(
+            connectionName, entityPath, topicName, sequenceNumbers,
+            treatNotFoundAsSuccess: true, onProgress, cancellationToken);
+
+        return result;
+    }
+
+    private async Task<BulkRequeueResult> BatchCompleteFromDlqAsync(
+        string connectionName,
+        string entityPath,
+        string? topicName,
+        HashSet<long> sequenceNumbers,
+        bool treatNotFoundAsSuccess,
+        Action<int, int>? onProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await GetOrCreateClientAsync(connectionName);
+        if (client is null)
+        {
+            var connectionFailures = sequenceNumbers.Select(s => (s, "Connection not found")).ToList();
+            return new BulkRequeueResult(0, sequenceNumbers.Count, connectionFailures);
+        }
+
+        await using var receiver = topicName is not null
+            ? client.CreateReceiver(topicName, entityPath, DlqReceiverOptions)
+            : client.CreateReceiver(entityPath, DlqReceiverOptions);
+
+        var toComplete = new List<ServiceBusReceivedMessage>();
+        var toAbandon = new List<ServiceBusReceivedMessage>();
+        var foundSequenceNumbers = new HashSet<long>();
+
+        // Receive all messages and categorize
+        const int batchSize = 100;
+        const int maxTotal = 1000;
+
+        while (toComplete.Count + toAbandon.Count < maxTotal && foundSequenceNumbers.Count < sequenceNumbers.Count)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batch = await receiver.ReceiveMessagesAsync(batchSize, TimeSpan.FromSeconds(2), cancellationToken);
+            if (batch.Count == 0)
+                break;
+
+            foreach (var msg in batch)
+            {
+                if (sequenceNumbers.Contains(msg.SequenceNumber))
+                {
+                    toComplete.Add(msg);
+                    foundSequenceNumbers.Add(msg.SequenceNumber);
+                }
+                else
+                {
+                    toAbandon.Add(msg);
+                }
+            }
+        }
+
+        // Complete matching messages concurrently
+        var completed = 0;
+        var successCount = 0;
+        var failures = new ConcurrentBag<(long SequenceNumber, string Error)>();
+
+        await Parallel.ForEachAsync(
+            toComplete,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = cancellationToken },
+            async (msg, ct) =>
+            {
+                try
+                {
+                    await receiver.CompleteMessageAsync(msg, ct);
+                    Interlocked.Increment(ref successCount);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add((msg.SequenceNumber, ex.Message));
+                }
+
+                var current = Interlocked.Increment(ref completed);
+                onProgress?.Invoke(current, sequenceNumbers.Count);
+            });
+
+        // Abandon non-matching messages concurrently (don't wait for all, fire and forget with brief delay)
+        _ = Task.Run(async () =>
+        {
+            await Parallel.ForEachAsync(
+                toAbandon,
+                new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency },
+                async (msg, _) =>
+                {
+                    try { await receiver.AbandonMessageAsync(msg); }
+                    catch { /* Lock will expire eventually */ }
+                });
+        }, CancellationToken.None);
+
+        // Report not-found messages as failures
+        foreach (var seq in sequenceNumbers.Except(foundSequenceNumbers))
+        {
+            failures.Add((seq, "Message not found in DLQ"));
+        }
+
+        onProgress?.Invoke(sequenceNumbers.Count, sequenceNumbers.Count);
+        return new BulkRequeueResult(successCount, failures.Count, failures.ToList());
     }
 
     private static ServiceBusReceiverOptions DlqReceiverOptions { get; } = new()
@@ -119,6 +231,62 @@ public class MessageRequeueService : IMessageRequeueService, IAsyncDisposable
             await using var sender = client.CreateSender(entityName);
             var message = CreateServiceBusMessage(originalMessage, modifiedBody);
             await sender.SendMessageAsync(message);
+
+            return new RequeueResult(true, null);
+        }
+        catch (Exception ex)
+        {
+            return new RequeueResult(false, ex.Message);
+        }
+    }
+
+    private async Task<RequeueResult> BatchSendMessagesAsync(
+        string connectionName,
+        string entityName,
+        IReadOnlyList<PeekedMessage> messages)
+    {
+        try
+        {
+            var client = await GetOrCreateClientAsync(connectionName);
+            if (client is null)
+            {
+                return new RequeueResult(false, "Connection not found");
+            }
+
+            await using var sender = client.CreateSender(entityName);
+
+            // Use batching to handle size limits automatically
+            ServiceBusMessageBatch? currentBatch = null;
+
+            foreach (var originalMessage in messages)
+            {
+                var message = CreateServiceBusMessage(originalMessage, null);
+
+                currentBatch ??= await sender.CreateMessageBatchAsync();
+
+                if (!currentBatch.TryAddMessage(message))
+                {
+                    // Current batch is full, send it and start a new one
+                    if (currentBatch.Count > 0)
+                    {
+                        await sender.SendMessagesAsync(currentBatch);
+                    }
+
+                    currentBatch = await sender.CreateMessageBatchAsync();
+
+                    if (!currentBatch.TryAddMessage(message))
+                    {
+                        // Single message is too large for a batch
+                        return new RequeueResult(false, $"Message {originalMessage.SequenceNumber} exceeds maximum batch size");
+                    }
+                }
+            }
+
+            // Send remaining messages
+            if (currentBatch is { Count: > 0 })
+            {
+                await sender.SendMessagesAsync(currentBatch);
+            }
 
             return new RequeueResult(true, null);
         }
